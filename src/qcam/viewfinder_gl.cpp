@@ -7,11 +7,11 @@
 
 #include "viewfinder_gl.h"
 
+#include <libcamera/formats.h>
+
 #include <QByteArray>
 #include <QFile>
 #include <QImage>
-
-#include <libcamera/formats.h>
 
 #include "../cam/image.h"
 
@@ -728,7 +728,7 @@ void ViewFinderGL::doRender()
 	 */
 	shaderProgram_.setUniformValue(textureUniformStrideFactor_,
 				       static_cast<float>(size_.width() - 1) /
-				       (stridePixels - 1));
+					       (stridePixels - 1));
 }
 
 void ViewFinderGL::paintGL()
