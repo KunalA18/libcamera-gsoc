@@ -4,6 +4,14 @@
     "functional": "cpp",
     "thread": "cpp",
     "regex": "cpp",
-    "*.tcc": "cpp"
+    "*.tcc": "cpp",
+    "*.ipp": "cpp",
+    "array": "cpp",
+    "memory": "cpp",
+    "future": "cpp",
+    "istream": "cpp",
+    "tuple": "cpp",
+    "utility": "cpp",
+    "variant": "cpp"
   }
 }

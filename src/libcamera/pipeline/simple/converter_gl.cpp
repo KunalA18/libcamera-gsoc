@@ -1,10 +1,20 @@
+#include "converter_gl.h"
+
 #include <Texture.h>
 #include <math.h>
+
+#include <libcamera/base/log.h>
+
+#include <libcamera/framebuffer.h>
 
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
 
 #include "shaderClass.h"
+
+namespace libcamera {
+
+LOG_DECLARE_CATEGORY(SimplePipeline)
 
 float rectangleVertices[] = {
 	// Coords    // texCoords
@@ -17,9 +27,9 @@ float rectangleVertices[] = {
 	-1.0f, 1.0f, 0.0f, 1.0f
 };
 
-int main()
+int queueBuffer(FrameBuffer *input)
 {
-	// Initialize GLFW
+	/*Initialize GLFW*/
 	glfwInit();
 
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_OPENGL_ES_API);
@@ -44,7 +54,7 @@ int main()
 	glewInit();
 
 	// Specify the viewport of OpenGL in the Window
-	// In this case the viewport goes from x = 0, y = 0, to x = 800, y = 800
+	// In this case the viewport goes from x = 0, y = 0, to x = 700, y = 700
 	glViewport(0, 0, 700, 700);
 
 	Shader shaderProgram("default.vert", "default.frag");
@@ -73,7 +83,7 @@ int main()
 	glGenFramebuffers(1, &FBO);
 	glBindFramebuffer(GL_FRAMEBUFFER, FBO);
 
-	Texture home("/home/pi/Desktop/IP-new/Resource Files/Textures/frame-1.bin", GL_TEXTURE_2D, GL_TEXTURE0, GL_RGB, GL_UNSIGNED_BYTE);
+	Texture home(input, GL_TEXTURE_2D, GL_TEXTURE0, GL_RGB, GL_UNSIGNED_BYTE);
 	//home.texUnit(shaderProgram, "tex0", 0);
 
 	// Create Render Buffer Object
@@ -106,6 +116,16 @@ int main()
 		glDisable(GL_DEPTH_TEST); // prevents framebuffer rectangle from being discarded
 		home.Bind();
 		glDrawArrays(GL_TRIANGLES, 0, 6);
+		int width, height;
+		glfwGetFramebufferSize(window, &width, &height);
+		GLsizei nrChannels = 3;
+		GLsizei stride = nrChannels * width;
+		stride += (stride % 4) ? (4 - stride % 4) : 0;
+		GLsizei bufferSize = stride * height;
+		std::vector<char> buffer(bufferSize);
+		glPixelStorei(GL_PACK_ALIGNMENT, 4);
+		glReadBuffer(GL_BACK);
+		glReadPixels(0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE, buffer.data());
 		// Swap the back buffer with the front buffer
 		glfwSwapBuffers(window);
 		// Take care of all GLFW events
@@ -120,5 +140,8 @@ int main()
 	glfwDestroyWindow(window);
 	// Terminate GLFW before ending the program
 	glfwTerminate();
-	return 0;
+
+	/*code to return the output buffer*/
 }
+
+} /* namespace libcamera */
