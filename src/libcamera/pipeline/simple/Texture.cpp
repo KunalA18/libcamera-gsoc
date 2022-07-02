@@ -1,16 +1,14 @@
 #include "Texture.h"
 
-Texture::Texture(const char *image, GLenum texType, GLenum slot, GLenum format, GLenum pixelType)
+#include <libcamera/framebuffer.h>
+namespace libcamera {
+Texture::Texture(libcamera::FrameBuffer *buffer, GLenum texType, GLenum slot, GLenum format, GLenum pixelType)
 {
 	// Assigns the type of the texture to the texture object
 	type = texType;
 
 	// Stores the width, height, and the number of color channels of the image
 	int widthImg, heightImg, numColCh;
-	// Flips the image so it appears right side up
-	stbi_set_flip_vertically_on_load(true);
-	// Reads the image from a file and stores it in bytes
-	unsigned char *bytes = stbi_load(image, &widthImg, &heightImg, &numColCh, 0);
 
 	// Generates an OpenGL texture object
 	glGenTextures(1, &ID);
@@ -30,13 +28,10 @@ Texture::Texture(const char *image, GLenum texType, GLenum slot, GLenum format, 
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE); // Prevents edge bleeding
 
 	// Assigns the image to the OpenGL Texture object
-	glTexImage2D(texType, 0, GL_LUMINANCE, widthImg, heightImg, 0, format, GL_LUMINANCE, bytes);
+	glTexImage2D(texType, 0, GL_LUMINANCE, widthImg, heightImg, 0, format, GL_LUMINANCE, buffer);
 	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texType, 0);
 	// Generates MipMaps
 	// glGenerateMipmap(texType);
-
-	// Deletes the image data as it is already in the OpenGL Texture object
-	stbi_image_free(bytes);
 
 	// Unbinds the OpenGL Texture object so that it can't accidentally be modified
 	glBindTexture(texType, 0);
@@ -66,3 +61,4 @@ void Texture::Delete()
 {
 	glDeleteTextures(1, &ID);
 }
+} // namespace libcamera
