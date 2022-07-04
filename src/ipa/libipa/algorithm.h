@@ -6,34 +6,86 @@
  */
 #pragma once
 
+#include <memory>
+#include <string>
+
 namespace libcamera {
+
+class YamlObject;
 
 namespace ipa {
 
-template<typename Context, typename FrameContext, typename Config,
-	 typename Params, typename Stats>
+template<typename _Module>
 class Algorithm
 {
 public:
+	using Module = _Module;
+
 	virtual ~Algorithm() {}
 
-	virtual int configure([[maybe_unused]] Context &context,
-			      [[maybe_unused]] const Config &configInfo)
+	virtual int init([[maybe_unused]] typename Module::Context &context,
+			 [[maybe_unused]] const YamlObject &tuningData)
 	{
 		return 0;
 	}
 
-	virtual void prepare([[maybe_unused]] Context &context,
-			     [[maybe_unused]] Params *params)
+	virtual int configure([[maybe_unused]] typename Module::Context &context,
+			      [[maybe_unused]] const typename Module::Config &configInfo)
+	{
+		return 0;
+	}
+
+	virtual void prepare([[maybe_unused]] typename Module::Context &context,
+			     [[maybe_unused]] typename Module::Params *params)
 	{
 	}
 
-	virtual void process([[maybe_unused]] Context &context,
-			     [[maybe_unused]] FrameContext *frameContext,
-			     [[maybe_unused]] const Stats *stats)
+	virtual void process([[maybe_unused]] typename Module::Context &context,
+			     [[maybe_unused]] typename Module::FrameContext *frameContext,
+			     [[maybe_unused]] const typename Module::Stats *stats)
 	{
 	}
 };
+
+template<typename _Module>
+class AlgorithmFactoryBase
+{
+public:
+	AlgorithmFactoryBase(const char *name)
+		: name_(name)
+	{
+		_Module::registerAlgorithm(this);
+	}
+
+	virtual ~AlgorithmFactoryBase() = default;
+
+	const std::string &name() const { return name_; }
+
+	virtual std::unique_ptr<Algorithm<_Module>> create() const = 0;
+
+private:
+	std::string name_;
+};
+
+template<typename _Algorithm>
+class AlgorithmFactory : public AlgorithmFactoryBase<typename _Algorithm::Module>
+{
+public:
+	AlgorithmFactory(const char *name)
+		: AlgorithmFactoryBase<typename _Algorithm::Module>(name)
+	{
+	}
+
+	~AlgorithmFactory() = default;
+
+	std::unique_ptr<Algorithm<typename _Algorithm::Module>> create() const override
+	{
+		return std::make_unique<_Algorithm>();
+	}
+};
+
+#define REGISTER_IPA_ALGORITHM(algorithm, name) \
+static AlgorithmFactory<algorithm> global_##algorithm##Factory(name);
 
 } /* namespace ipa */
 
