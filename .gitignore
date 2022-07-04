@@ -2,7 +2,9 @@
 
 /build/
 /patches/
+/.vscode/
 
 *.patch
 *.pyc
+
 __pycache__/
