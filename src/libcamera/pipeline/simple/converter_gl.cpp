@@ -1,14 +1,15 @@
 #include "converter_gl.h"
 
 #include <Texture.h>
-#include <math.h>
-
-#include <libcamera/base/log.h>
+#include <gbm.h>
 
 #include <libcamera/framebuffer.h>
 
+#include <EGL/egl.h>
+#include <EGL/eglext.h>
+#include <EGL/eglplatform.h>
 #include <GL/glew.h>
-#include <GLFW/glfw3.h>
+#include <cam/image.h>
 
 #include "shaderClass.h"
 
@@ -29,33 +30,35 @@ float rectangleVertices[] = {
 
 int queueBuffer(FrameBuffer *input)
 {
-	/*Initialize GLFW*/
-	glfwInit();
+	assert(eglBindAPI(EGL_OPENGL_API) == EGL_TRUE);
+	int fd = open("/dev/dri/card0", O_RDWR); /*confirm*/
+	struct gbm_device *gbm = gbm_create_device(fd);
+	struct gbm_surface *gbm_surf = gbm_surface_create(gbm, 256, 256, GBM_FORMAT_XRGB8888, GBM_BO_USE_RENDERING);
 
-	glfwWindowHint(GLFW_CLIENT_API, GLFW_OPENGL_ES_API);
+	/* get an EGL display connection */
+	EGLDisplay dpy = eglGetPlatformDisplayEXT(EGL_PLATFORM_GBM_MESA, gbm, NULL);
 
-	// Tell GLFW what version of OpenGL es we are using
-	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
-	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_ANY_PROFILE);
+	/* initialize the EGL display connection */
+	eglInitialize(dpy, NULL, NULL);
+	EGLConfig config;
+	EGLint n_of_configs;
+	assert(eglGetConfigs(dpy, &config, 1, &n_of_configs) == EGL_TRUE);
 
-	// Create a GLFWwindow object of 700 by 700 pixels
-	GLFWwindow *window = glfwCreateWindow(700, 700, "OpenGL", NULL, NULL);
-	// Error check if the window fails to create
-	if (window == NULL) {
-		std::cout << "Failed to create GLFW window" << std::endl;
-		glfwTerminate();
-		return -1;
-	}
-	// Introduce the window into the current context
-	glfwMakeContextCurrent(window);
+	/* create an EGL window surface */
+	EGLSurface srf = eglCreatePlatformWindowSurfaceEXT(dpy, config, gbm_surf, NULL);
+	assert(srf != EGL_NO_SURFACE);
+	EGLContext ctx = eglCreateContext(dpy, config, EGL_NO_CONTEXT, NULL);
+	assert(ctx != EGL_NO_CONTEXT);
+
+	/* connect the context to the surface */
+	assert(eglMakeCurrent(dpy, srf, srf, ctx) == EGL_TRUE);
 
 	//Load GLEW so it configures OpenGL
 	glewInit();
 
 	// Specify the viewport of OpenGL in the Window
 	// In this case the viewport goes from x = 0, y = 0, to x = 700, y = 700
-	glViewport(0, 0, 700, 700);
+	//glViewport(0, 0, 700, 700);
 
 	Shader shaderProgram("default.vert", "default.frag");
 	Shader framebufferProgram("bayer_8.vert", "bayer_8.frag");
@@ -83,7 +86,7 @@ int queueBuffer(FrameBuffer *input)
 	glGenFramebuffers(1, &FBO);
 	glBindFramebuffer(GL_FRAMEBUFFER, FBO);
 
-	Texture home(input, GL_TEXTURE_2D, GL_TEXTURE0, GL_RGB, GL_UNSIGNED_BYTE);
+	Texture home(mappedBuffers_[input].get(), GL_TEXTURE_2D, GL_TEXTURE0, GL_LUMINANCE, GL_UNSIGNED_BYTE);
 	//home.texUnit(shaderProgram, "tex0", 0);
 
 	// Create Render Buffer Object
@@ -99,47 +102,37 @@ int queueBuffer(FrameBuffer *input)
 		std::cout << "Framebuffer error: " << fboStatus << std::endl;
 
 	// Main while loop
-	while (!glfwWindowShouldClose(window)) {
-		// Bind the custom framebuffer
-		glBindFramebuffer(GL_FRAMEBUFFER, FBO);
-		// Specify the color of the background
-		glClearColor(0.54f, 0.1f, 0.57f, 1.0f);
-		// Clean the back buffer and assign the new color to it
-		glClear(GL_COLOR_BUFFER_BIT);
-		// Enable depth testing since it's disabled when drawing the framebuffer rectangle
-		glEnable(GL_DEPTH_TEST);
-		// Bind the default framebuffer
-		glBindFramebuffer(GL_FRAMEBUFFER, 0);
-		// Draw the framebuffer rectangle
-		framebufferProgram.Activate();
-		glBindVertexArray(rectVAO);
-		glDisable(GL_DEPTH_TEST); // prevents framebuffer rectangle from being discarded
-		home.Bind();
-		glDrawArrays(GL_TRIANGLES, 0, 6);
-		int width, height;
-		glfwGetFramebufferSize(window, &width, &height);
-		GLsizei nrChannels = 3;
-		GLsizei stride = nrChannels * width;
-		stride += (stride % 4) ? (4 - stride % 4) : 0;
-		GLsizei bufferSize = stride * height;
-		std::vector<char> buffer(bufferSize);
-		glPixelStorei(GL_PACK_ALIGNMENT, 4);
-		glReadBuffer(GL_BACK);
-		glReadPixels(0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE, buffer.data());
-		// Swap the back buffer with the front buffer
-		glfwSwapBuffers(window);
-		// Take care of all GLFW events
-		glfwPollEvents();
-	}
+	//while (!glfwWindowShouldClose(window)) {
+	// Bind the custom framebuffer
+	glBindFramebuffer(GL_FRAMEBUFFER, FBO);
+	// Specify the color of the background
+	glClearColor(0.54f, 0.1f, 0.57f, 1.0f);
+	// Clean the back buffer and assign the new color to it
+	glClear(GL_COLOR_BUFFER_BIT);
+	// Enable depth testing since it's disabled when drawing the framebuffer rectangle
+	glEnable(GL_DEPTH_TEST);
+	// Bind the default framebuffer
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	// Draw the framebuffer rectangle
+	framebufferProgram.Activate();
+	glBindVertexArray(rectVAO);
+	glDisable(GL_DEPTH_TEST); // prevents framebuffer rectangle from being discarded
+	home.Bind();
+	glDrawArrays(GL_TRIANGLES, 0, 6);
+	//}
 
 	// Delete all the objects we've created
 	shaderProgram.Delete();
 	glDeleteFramebuffers(1, &FBO);
 
-	// Delete window before ending the program
-	glfwDestroyWindow(window);
-	// Terminate GLFW before ending the program
-	glfwTerminate();
+	eglDestroySurface(dpy, srf);
+	eglDestroyContext(dpy, ctx);
+	eglTerminate(dpy);
+
+	gbm_device_destroy(gbm);
+	close(fd);
+
+	return EXIT_SUCCESS;
 
 	/*code to return the output buffer*/
 }

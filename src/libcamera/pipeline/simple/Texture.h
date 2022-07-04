@@ -2,18 +2,20 @@
 #define TEXTURE_CLASS_H
 
 #include <GL/glew.h>
+#include <cam/image.h>
 
 #include "shaderClass.h"
 
 namespace libcamera {
 
 class FrameBuffer;
+
 class Texture
 {
 public:
 	GLuint ID;
 	GLenum type;
-	Texture(libcamera::FrameBuffer *buffer, GLenum texType, GLenum slot, GLenum format, GLenum pixelType);
+	Texture(Image *image, GLenum texType, GLenum slot, GLenum format, GLenum pixelType);
 
 	// Assigns a texture unit to a texture
 	void texUnit(Shader &shader, const char *uniform, GLuint unit);
