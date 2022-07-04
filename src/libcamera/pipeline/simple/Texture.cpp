@@ -2,7 +2,7 @@
 
 #include <libcamera/framebuffer.h>
 namespace libcamera {
-Texture::Texture(libcamera::FrameBuffer *buffer, GLenum texType, GLenum slot, GLenum format, GLenum pixelType)
+Texture::Texture(Image *image, GLenum texType, GLenum slot, GLenum format, GLenum pixelType)
 {
 	// Assigns the type of the texture to the texture object
 	type = texType;
@@ -28,7 +28,7 @@ Texture::Texture(libcamera::FrameBuffer *buffer, GLenum texType, GLenum slot, GL
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE); // Prevents edge bleeding
 
 	// Assigns the image to the OpenGL Texture object
-	glTexImage2D(texType, 0, GL_LUMINANCE, widthImg, heightImg, 0, format, GL_LUMINANCE, buffer);
+	glTexImage2D(texType, 0, GL_LUMINANCE, widthImg, heightImg, 0, format, GL_LUMINANCE, image->data(0).data());
 	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texType, 0);
 	// Generates MipMaps
 	// glGenerateMipmap(texType);
