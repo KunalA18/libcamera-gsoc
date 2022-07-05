@@ -1,8 +1,9 @@
 #include "Texture.h"
 
 #include <libcamera/framebuffer.h>
+
 namespace libcamera {
-Texture::Texture(Image *image, GLenum texType, GLenum slot, GLenum format, GLenum pixelType)
+Texture::Texture(MappedFrameBuffer *image, GLenum texType, GLenum slot, GLenum format, GLenum pixelType)
 {
 	// Assigns the type of the texture to the texture object
 	type = texType;
@@ -24,11 +25,11 @@ Texture::Texture(Image *image, GLenum texType, GLenum slot, GLenum format, GLenu
 	// glTexParameteri(texType, GL_TEXTURE_WRAP_S, GL_REPEAT);
 	// glTexParameteri(texType, GL_TEXTURE_WRAP_T, GL_REPEAT);
 
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE); // Prevents edge bleeding
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE); // Prevents edge bleeding
+	//glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE); // Prevents edge bleeding
+	//glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE); // Prevents edge bleeding
 
 	// Assigns the image to the OpenGL Texture object
-	glTexImage2D(texType, 0, GL_LUMINANCE, widthImg, heightImg, 0, format, GL_LUMINANCE, image->data(0).data());
+	glTexImage2D(texType, 0, GL_LUMINANCE, widthImg, heightImg, 0, format, GL_LUMINANCE, image->planes()[0].data());
 	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texType, 0);
 	// Generates MipMaps
 	// glGenerateMipmap(texType);
