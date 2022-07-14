@@ -11,10 +11,9 @@
 #include <list>
 #include <map>
 #include <memory>
-#include <queue>
 #include <set>
-#include <string>
 #include <string.h>
+#include <string>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -36,7 +35,9 @@
 #include "libcamera/internal/v4l2_subdevice.h"
 #include "libcamera/internal/v4l2_videodevice.h"
 
-#include "converter.h"
+#include <queue>
+
+#include "converter_gl.h"
 
 namespace libcamera {
 
@@ -1023,6 +1024,9 @@ int SimplePipelineHandler::configure(Camera *camera, CameraConfiguration *c)
 	format.mbus_code = pipeConfig->code;
 	format.size = pipeConfig->sensorSize;
 
+	LOG(SimplePipeline, Debug)
+		<< "TESTING CONFIG" << pipeConfig->captureFormat;
+
 	ret = data->setupFormats(&format, V4L2Subdevice::ActiveFormat);
 	if (ret < 0)
 		return ret;
@@ -1070,7 +1074,7 @@ int SimplePipelineHandler::configure(Camera *camera, CameraConfiguration *c)
 		return 0;
 
 	StreamConfiguration inputCfg;
-	inputCfg.pixelFormat = pipeConfig->captureFormat;
+	inputCfg.pixelFormat = pipeConfig->captureFormat; //SGBRG10
 	inputCfg.size = pipeConfig->captureSize;
 	inputCfg.stride = captureFormat.planes[0].bpl;
 	inputCfg.bufferCount = kNumInternalBuffers;
