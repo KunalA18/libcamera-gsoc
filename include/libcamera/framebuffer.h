@@ -65,6 +65,7 @@ public:
 	const std::vector<Plane> &planes() const { return planes_; }
 	Request *request() const;
 	const FrameMetadata &metadata() const { return metadata_; }
+	FrameMetadata &metadata_mut() { return metadata_; }
 
 	unsigned int cookie() const { return cookie_; }
 	void setCookie(unsigned int cookie) { cookie_ = cookie; }
