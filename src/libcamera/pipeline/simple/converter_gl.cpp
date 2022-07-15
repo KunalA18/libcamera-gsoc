@@ -3,12 +3,15 @@
 #include <Texture.h>
 #include <gbm.h>
 
+#include <libcamera/base/unique_fd.h>
+
+#include <libcamera/formats.h>
 #include <libcamera/framebuffer.h>
 #include <libcamera/stream.h>
 
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
-#include <EGL/eglplatform.h>
+#include <GL/gl.h>
 #include <GL/glew.h>
 
 #include "shaderClass.h"
@@ -33,7 +36,7 @@ void SimpleConverter::start()
 	assert(eglBindAPI(EGL_OPENGL_API) == EGL_TRUE);
 	fd = open("/dev/dri/card0", O_RDWR); /*confirm*/
 	gbm = gbm_create_device(fd);
-	struct gbm_surface *gbm_surf = gbm_surface_create(gbm, 256, 256, GBM_FORMAT_XRGB8888, GBM_BO_USE_RENDERING);
+	//struct gbm_surface *gbm_surf = gbm_surface_create(gbm, 1024, 1024, GBM_FORMAT_XRGB8888, GBM_BO_USE_RENDERING);
 
 	auto eglGetPlatformDisplayEXT = (PFNEGLGETPLATFORMDISPLAYEXTPROC)eglGetProcAddress("eglGetPlatformDisplayEXT");
 	/* get an EGL display connection */
@@ -45,15 +48,15 @@ void SimpleConverter::start()
 	EGLint n_of_configs;
 	assert(eglGetConfigs(dpy, &config, 1, &n_of_configs) == EGL_TRUE);
 
-	auto eglCreatePlatformWindowSurfaceEXT = (PFNEGLCREATEPLATFORMWINDOWSURFACEEXTPROC)eglGetProcAddress("eglCreatePlatformWindowSurfaceEXT");
+	//auto eglCreatePlatformWindowSurfaceEXT = (PFNEGLCREATEPLATFORMWINDOWSURFACEEXTPROC)eglGetProcAddress("eglCreatePlatformWindowSurfaceEXT");
 	/* create an EGL window surface */
-	srf = eglCreatePlatformWindowSurfaceEXT(dpy, config, gbm_surf, NULL);
-	assert(srf != EGL_NO_SURFACE);
+	//srf = eglCreatePlatformWindowSurfaceEXT(dpy, config, gbm_surf, NULL);
+	//assert(srf != EGL_NO_SURFACE);
 	ctx = eglCreateContext(dpy, config, EGL_NO_CONTEXT, NULL);
 	assert(ctx != EGL_NO_CONTEXT);
 
 	/* connect the context to the surface */
-	assert(eglMakeCurrent(dpy, srf, srf, ctx) == EGL_TRUE);
+	assert(eglMakeCurrent(dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, ctx) == EGL_TRUE);
 
 	/*Load GLEW so it configures OpenGL*/
 	glewInit();
@@ -73,32 +76,85 @@ void SimpleConverter::exportBuffers(unsigned int count,
 				    std::vector<std::unique_ptr<FrameBuffer>> *buffers)
 {
 	for (unsigned i = 0; i < count; ++i) {
-		std::unique_ptr<FrameBuffer> buffer = createBuffer(i);
-		buffers->push_back(std::move(buffer));
+		auto tex = createBuffer(i);
+		outputBuffers.emplace_back(tex.second);
+		buffers->push_back(std::move(tex.first));
 	}
 }
 
-std::unique_ptr<FrameBuffer> SimpleConverter::createBuffer(unsigned int index)
+std::pair<std::unique_ptr<FrameBuffer>, GlRenderTarget> SimpleConverter::createBuffer(unsigned int index)
 {
-	bo = gbm_bo_create(gbm, outformat.size.width, outformat.size.height, GBM_BO_FORMAT_ARGB8888, GBM_BO_USE_RENDERING); /*confirm width,height,format*/
+	bo = gbm_bo_create(gbm, outformat.size.width, outformat.size.height, GBM_BO_FORMAT_ARGB8888, GBM_BO_USE_RENDERING);
+	unsigned int filedesc = gbm_bo_get_fd_for_plane(bo, 0);
+	dmabuf_image dimg = import_dmabuf(filedesc, outformat.size, libcamera::formats::ARGB8888);
+
+	// auto gltexture = dimg.texture;
+	// struct tex text;
+	// text.texture = dimg.texture;
 
 	std::vector<FrameBuffer::Plane> planes;
-	for (unsigned int nplane = 0; nplane < 1; nplane++) {
-		unsigned int filedesc = gbm_bo_get_fd_for_plane(bo, nplane);
-		FrameBuffer::Plane plane;
-		plane.fd = SharedFD(std::move(filedesc));
-		plane.offset = gbm_bo_get_offset(bo, nplane);
-		plane.length = gbm_bo_get_stride_for_plane(bo, nplane) * outformat.size.height;
+	UniqueFD fd(filedesc);
+	FrameBuffer::Plane plane;
+	plane.fd = SharedFD(std::move(fd));
+	plane.offset = gbm_bo_get_offset(bo, 0);
+	plane.length = gbm_bo_get_stride_for_plane(bo, 0) * outformat.size.height;
 
-		planes.push_back(std::move(plane));
-	}
-	return std::make_unique<FrameBuffer>(planes);
+	planes.push_back(std::move(plane));
+
+	auto fb = std::make_unique<FrameBuffer>(planes);
+	fb->metadata_mut().planes()[0].bytesused = plane.length;
+	return std::make_pair(std::move(fb), GlRenderTarget(fb.get(), dimg));
 }
 
-int SimpleConverter::queueBuffer(FrameBuffer *input, FrameBuffer *output)
+SimpleConverter::dmabuf_image SimpleConverter::import_dmabuf(int fd, Size pixelSize, libcamera::PixelFormat format)
 {
-	Shader shaderProgram("default.vert", "default.frag");
-	Shader framebufferProgram("bayer_8.vert", "bayer_8.frag");
+	int bytes_per_pixel = 4;
+	EGLint const attrs[] = {
+		EGL_WIDTH,
+		(int)pixelSize.width,
+		EGL_HEIGHT,
+		(int)pixelSize.height,
+		EGL_LINUX_DRM_FOURCC_EXT,
+		(int)format.fourcc(),
+		EGL_DMA_BUF_PLANE0_FD_EXT,
+		fd,
+		EGL_DMA_BUF_PLANE0_OFFSET_EXT,
+		0,
+		EGL_DMA_BUF_PLANE0_PITCH_EXT,
+		(int)pixelSize.width * bytes_per_pixel,
+		EGL_NONE,
+	};
+
+	auto eglCreateImageKHR = (PFNEGLCREATEIMAGEKHRPROC)eglGetProcAddress("eglCreateImageKHR");
+
+	auto image = eglCreateImageKHR(
+		dpy,
+		EGL_NO_CONTEXT,
+		EGL_LINUX_DMA_BUF_EXT,
+		NULL,
+		attrs);
+
+	auto e = glGetError();
+	if (e != GL_NO_ERROR) {
+		std::cout << "GL_ERROR: " << e << std::endl;
+	}
+	GLuint texture;
+	glGenTextures(1, &texture);
+	struct dmabuf_image img = {
+		.texture = texture,
+		.image = image,
+	};
+	// glBindTexture(GL_TEXTURE_2D, texture);
+	// auto glEGLImageTargetTexture2DOES = (PFNGLEGLIMAGETARGETTEXTURE2DOESPROC)eglGetProcAddress("glEGLImageTargetTexture2DOES");
+	// glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, image);
+
+	return img;
+}
+
+std::unique_ptr<FrameBuffer> SimpleConverter::queueBuffers(FrameBuffer *input, FrameBuffer *output)
+{
+	shaderProgram.callShader("default.vert", "default.frag");
+	framebufferProgram.callShader("bayer_8.vert", "bayer_8.frag");
 
 	framebufferProgram.Activate();
 	glBindAttribLocation(framebufferProgram.ID, 0, "vertexIn");
@@ -126,7 +182,7 @@ int SimpleConverter::queueBuffer(FrameBuffer *input, FrameBuffer *output)
 	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void *)(2 * sizeof(float)));
 
 	/* create FrameBuffer object*/
-	unsigned int FBO;
+
 	glGenFramebuffers(1, &FBO);
 	glBindFramebuffer(GL_FRAMEBUFFER, FBO);
 
@@ -162,15 +218,14 @@ int SimpleConverter::queueBuffer(FrameBuffer *input, FrameBuffer *output)
 	home.Bind();
 	glDrawArrays(GL_TRIANGLES, 0, 6);
 
-	/*code to return the output buffer*/
-
-	/*Delete all the objects we've created*/
-	shaderProgram.Delete();
-	glDeleteFramebuffers(1, &FBO);
+	return std::make_unique<FrameBuffer>(output);
 }
 
 void SimpleConverter::stop()
 {
+	/*Delete all the objects we've created*/
+	shaderProgram.Delete();
+	glDeleteFramebuffers(1, &FBO);
 	eglDestroySurface(dpy, srf);
 	eglDestroyContext(dpy, ctx);
 	eglTerminate(dpy);
