@@ -20,7 +20,7 @@ std::string get_file_contents(const char *filename)
 }
 
 // Constructor that build the Shader Program from 2 different shaders
-Shader::Shader(const char *vertexFile, const char *fragmentFile)
+void Shader::callShader(const char *vertexFile, const char *fragmentFile)
 {
 	// Read vertexFile and fragmentFile and store the strings
 	std::string vertexCode = get_file_contents(vertexFile);
