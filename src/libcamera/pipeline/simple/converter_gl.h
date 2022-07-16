@@ -20,8 +20,8 @@ public:
 	std::unique_ptr<FrameBuffer> queueBuffers(FrameBuffer *input, FrameBuffer *output);
 	void start();
 	void stop();
-	void exportBuffers(unsigned int count,
-			   std::vector<std::unique_ptr<FrameBuffer>> *buffers);
+	std::vector<std::unique_ptr<FrameBuffer>> exportBuffers(unsigned int count,
+								std::vector<std::unique_ptr<FrameBuffer>> *buffers);
 	std::pair<std::unique_ptr<FrameBuffer>, GlRenderTarget> createBuffer(unsigned int index);
 	int configure(const StreamConfiguration &inputCfg,
 		      const StreamConfiguration &outputCfg);

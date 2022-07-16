@@ -31,37 +31,6 @@ float rectangleVertices[] = {
 	-1.0f, 1.0f, 0.0f, 1.0f
 };
 
-void SimpleConverter::start()
-{
-	assert(eglBindAPI(EGL_OPENGL_API) == EGL_TRUE);
-	fd = open("/dev/dri/card0", O_RDWR); /*confirm*/
-	gbm = gbm_create_device(fd);
-	//struct gbm_surface *gbm_surf = gbm_surface_create(gbm, 1024, 1024, GBM_FORMAT_XRGB8888, GBM_BO_USE_RENDERING);
-
-	auto eglGetPlatformDisplayEXT = (PFNEGLGETPLATFORMDISPLAYEXTPROC)eglGetProcAddress("eglGetPlatformDisplayEXT");
-	/* get an EGL display connection */
-	dpy = eglGetPlatformDisplayEXT(EGL_PLATFORM_GBM_MESA, gbm, NULL);
-
-	/* initialize the EGL display connection */
-	eglInitialize(dpy, NULL, NULL);
-	EGLConfig config;
-	EGLint n_of_configs;
-	assert(eglGetConfigs(dpy, &config, 1, &n_of_configs) == EGL_TRUE);
-
-	//auto eglCreatePlatformWindowSurfaceEXT = (PFNEGLCREATEPLATFORMWINDOWSURFACEEXTPROC)eglGetProcAddress("eglCreatePlatformWindowSurfaceEXT");
-	/* create an EGL window surface */
-	//srf = eglCreatePlatformWindowSurfaceEXT(dpy, config, gbm_surf, NULL);
-	//assert(srf != EGL_NO_SURFACE);
-	ctx = eglCreateContext(dpy, config, EGL_NO_CONTEXT, NULL);
-	assert(ctx != EGL_NO_CONTEXT);
-
-	/* connect the context to the surface */
-	assert(eglMakeCurrent(dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, ctx) == EGL_TRUE);
-
-	/*Load GLEW so it configures OpenGL*/
-	glewInit();
-}
-
 int SimpleConverter::configure(const StreamConfiguration &inputCfg,
 			       const StreamConfiguration &outputCfg)
 {
@@ -72,14 +41,15 @@ int SimpleConverter::configure(const StreamConfiguration &inputCfg,
 	// format.size = outputCfg.pixelFormat;
 }
 
-void SimpleConverter::exportBuffers(unsigned int count,
-				    std::vector<std::unique_ptr<FrameBuffer>> *buffers)
+std::vector<std::unique_ptr<FrameBuffer>> SimpleConverter::exportBuffers(unsigned int count,
+									 std::vector<std::unique_ptr<FrameBuffer>> *buffers)
 {
 	for (unsigned i = 0; i < count; ++i) {
 		auto tex = createBuffer(i);
 		outputBuffers.emplace_back(tex.second);
 		buffers->push_back(std::move(tex.first));
 	}
+	return *buffers;
 }
 
 std::pair<std::unique_ptr<FrameBuffer>, GlRenderTarget> SimpleConverter::createBuffer(unsigned int index)
@@ -144,6 +114,7 @@ SimpleConverter::dmabuf_image SimpleConverter::import_dmabuf(int fd, Size pixelS
 		.texture = texture,
 		.image = image,
 	};
+
 	// glBindTexture(GL_TEXTURE_2D, texture);
 	// auto glEGLImageTargetTexture2DOES = (PFNGLEGLIMAGETARGETTEXTURE2DOESPROC)eglGetProcAddress("glEGLImageTargetTexture2DOES");
 	// glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, image);
@@ -151,11 +122,41 @@ SimpleConverter::dmabuf_image SimpleConverter::import_dmabuf(int fd, Size pixelS
 	return img;
 }
 
-std::unique_ptr<FrameBuffer> SimpleConverter::queueBuffers(FrameBuffer *input, FrameBuffer *output)
+void SimpleConverter::start()
 {
+	assert(eglBindAPI(EGL_OPENGL_API) == EGL_TRUE);
+	fd = open("/dev/dri/card0", O_RDWR); /*confirm*/
+	gbm = gbm_create_device(fd);
+	//struct gbm_surface *gbm_surf = gbm_surface_create(gbm, 1024, 1024, GBM_FORMAT_XRGB8888, GBM_BO_USE_RENDERING);
+
+	auto eglGetPlatformDisplayEXT = (PFNEGLGETPLATFORMDISPLAYEXTPROC)eglGetProcAddress("eglGetPlatformDisplayEXT");
+	/* get an EGL display connection */
+	dpy = eglGetPlatformDisplayEXT(EGL_PLATFORM_GBM_MESA, gbm, NULL);
+
+	/* initialize the EGL display connection */
+	eglInitialize(dpy, NULL, NULL);
+	EGLConfig config;
+	EGLint n_of_configs;
+	assert(eglGetConfigs(dpy, &config, 1, &n_of_configs) == EGL_TRUE);
+
+	//auto eglCreatePlatformWindowSurfaceEXT = (PFNEGLCREATEPLATFORMWINDOWSURFACEEXTPROC)eglGetProcAddress("eglCreatePlatformWindowSurfaceEXT");
+	/* create an EGL window surface */
+	//srf = eglCreatePlatformWindowSurfaceEXT(dpy, config, gbm_surf, NULL);
+	//assert(srf != EGL_NO_SURFACE);
+	ctx = eglCreateContext(dpy, config, EGL_NO_CONTEXT, NULL);
+	assert(ctx != EGL_NO_CONTEXT);
+
+	/* connect the context to the surface */
+	assert(eglMakeCurrent(dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, ctx) == EGL_TRUE);
+
+	/*Load GLEW so it configures OpenGL*/
+	glewInit();
 	shaderProgram.callShader("default.vert", "default.frag");
 	framebufferProgram.callShader("bayer_8.vert", "bayer_8.frag");
+}
 
+std::unique_ptr<FrameBuffer> SimpleConverter::queueBuffers(FrameBuffer *input, FrameBuffer *output)
+{
 	framebufferProgram.Activate();
 	glBindAttribLocation(framebufferProgram.ID, 0, "vertexIn");
 	glBindAttribLocation(framebufferProgram.ID, 2, "textureIn");
