@@ -7,3 +7,8 @@ libcamera_sources += files([
     'converter.cpp',
     'simple.cpp',
 ])
+
+libgbm = dependency('gbm', required : true)
+libegl = dependency('egl', required : true)
+libgl = dependency('gl', required : true)
+libglew = dependency('glew', required : true)

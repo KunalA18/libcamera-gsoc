@@ -3,12 +3,13 @@
 #include <assert.h>
 #include <fcntl.h>
 #include <map>
-#include <mapped_framebuffer.h>
 #include <math.h>
 #include <stdlib.h>
 #include <unistd.h>
 
 #include <libcamera/base/log.h>
+
+#include <libcamera/internal/mapped_framebuffer.h>
 
 namespace libcamera {
 
