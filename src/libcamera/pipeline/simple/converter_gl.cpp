@@ -1,3 +1,4 @@
+
 #include "converter_gl.h"
 
 #include <Texture.h>
@@ -187,7 +188,7 @@ std::unique_ptr<FrameBuffer> SimpleConverter::queueBuffers(FrameBuffer *input, F
 	glGenFramebuffers(1, &FBO);
 	glBindFramebuffer(GL_FRAMEBUFFER, FBO);
 
-	Texture home(mappedBuffers_[input].get(), GL_TEXTURE_2D, GL_TEXTURE0, GL_LUMINANCE, GL_UNSIGNED_BYTE);
+	Texture home(mappedBuffers_[input].get(), GL_TEXTURE_2D, GL_TEXTURE0, GL_LUMINANCE, GL_UNSIGNED_BYTE, informat.size);
 
 	/* Create Render Buffer Object
 	unsigned int RBO;
