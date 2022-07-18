@@ -168,9 +168,6 @@ std::unique_ptr<FrameBuffer> SimpleConverter::queueBuffers(FrameBuffer *input, F
 		    informat.size.height);
 	glUniform2f(glGetUniformLocation(framebufferProgram.ID, "tex_bayer_first_red"), 0.0, 1.0);
 
-	/* Gets ID of uniform called "scale"*/
-	GLuint uniID = glGetUniformLocation(shaderProgram.ID, "scale");
-
 	/* Prepare framebuffer rectangle VBO and VAO*/
 	unsigned int rectVAO, rectVBO;
 	glGenVertexArrays(1, &rectVAO);
