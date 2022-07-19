@@ -1,4 +1,3 @@
-
 #include "converter_gl.h"
 
 #include <Texture.h>
@@ -8,14 +7,9 @@
 
 #include <libcamera/formats.h>
 #include <libcamera/framebuffer.h>
-#include <libcamera/stream.h>
 
-#include <EGL/egl.h>
-#include <EGL/eglext.h>
 #include <GL/gl.h>
 #include <GL/glew.h>
-
-#include "shaderClass.h"
 
 namespace libcamera {
 
@@ -32,8 +26,8 @@ float rectangleVertices[] = {
 	-1.0f, 1.0f, 0.0f, 1.0f
 };
 
-int SimpleConverter::configure(const StreamConfiguration &inputCfg,
-			       const StreamConfiguration &outputCfg)
+void SimpleConverter::configure(const StreamConfiguration &inputCfg,
+				const StreamConfiguration &outputCfg)
 {
 	informat.size = inputCfg.size;
 	informat.planes[0].bpl = inputCfg.stride;
@@ -42,18 +36,25 @@ int SimpleConverter::configure(const StreamConfiguration &inputCfg,
 	// format.size = outputCfg.pixelFormat;
 }
 
-std::vector<std::unique_ptr<FrameBuffer>> SimpleConverter::exportBuffers(unsigned int count,
-									 std::vector<std::unique_ptr<FrameBuffer>> *buffers)
+int SimpleConverter::exportBuffers(unsigned int count,
+				   std::vector<std::unique_ptr<FrameBuffer>> *buffers)
 {
-	for (unsigned i = 0; i < count; ++i) {
-		auto tex = createBuffer(i);
-		outputBuffers.emplace_back(tex.second);
-		buffers->push_back(std::move(tex.first));
+	if (outputBuffers.size() > 0) {
+		return -1;
 	}
-	return *buffers;
+	std::vector<std::unique_ptr<FrameBuffer>> out;
+	for (unsigned i = 0; i < count; ++i) {
+		auto tex = createBuffer();
+		outputBuffers.emplace_back(tex.second);
+		out.emplace_back(std::move(tex.first));
+	}
+	for (auto &buf : out) {
+		buffers->push_back(std::move(buf));
+	}
+	return count;
 }
 
-std::pair<std::unique_ptr<FrameBuffer>, GlRenderTarget> SimpleConverter::createBuffer(unsigned int index)
+std::pair<std::unique_ptr<FrameBuffer>, GlRenderTarget> SimpleConverter::createBuffer()
 {
 	bo = gbm_bo_create(gbm, outformat.size.width, outformat.size.height, GBM_BO_FORMAT_ARGB8888, GBM_BO_USE_RENDERING);
 	unsigned int filedesc = gbm_bo_get_fd_for_plane(bo, 0);
@@ -77,7 +78,7 @@ std::pair<std::unique_ptr<FrameBuffer>, GlRenderTarget> SimpleConverter::createB
 	return std::make_pair(std::move(fb), GlRenderTarget(fb.get(), dimg));
 }
 
-SimpleConverter::dmabuf_image SimpleConverter::import_dmabuf(int fd, Size pixelSize, libcamera::PixelFormat format)
+SimpleConverter::dmabuf_image SimpleConverter::import_dmabuf(int fdesc, Size pixelSize, libcamera::PixelFormat format)
 {
 	int bytes_per_pixel = 4;
 	EGLint const attrs[] = {
@@ -88,7 +89,7 @@ SimpleConverter::dmabuf_image SimpleConverter::import_dmabuf(int fd, Size pixelS
 		EGL_LINUX_DRM_FOURCC_EXT,
 		(int)format.fourcc(),
 		EGL_DMA_BUF_PLANE0_FD_EXT,
-		fd,
+		fdesc,
 		EGL_DMA_BUF_PLANE0_OFFSET_EXT,
 		0,
 		EGL_DMA_BUF_PLANE0_PITCH_EXT,
@@ -126,8 +127,8 @@ SimpleConverter::dmabuf_image SimpleConverter::import_dmabuf(int fd, Size pixelS
 void SimpleConverter::start()
 {
 	assert(eglBindAPI(EGL_OPENGL_API) == EGL_TRUE);
-	fd = open("/dev/dri/card0", O_RDWR); /*confirm*/
-	gbm = gbm_create_device(fd);
+	dev = open("/dev/dri/card0", O_RDWR); /*confirm*/
+	gbm = gbm_create_device(dev);
 	//struct gbm_surface *gbm_surf = gbm_surface_create(gbm, 1024, 1024, GBM_FORMAT_XRGB8888, GBM_BO_USE_RENDERING);
 
 	auto eglGetPlatformDisplayEXT = (PFNEGLGETPLATFORMDISPLAYEXTPROC)eglGetProcAddress("eglGetPlatformDisplayEXT");
@@ -230,7 +231,7 @@ void SimpleConverter::stop()
 	eglTerminate(dpy);
 
 	gbm_device_destroy(gbm);
-	close(fd);
+	close(dev);
 }
 
 } /* namespace libcamera */

@@ -2,6 +2,7 @@
 
 #include <assert.h>
 #include <fcntl.h>
+#include <gbm.h>
 #include <map>
 #include <math.h>
 #include <stdlib.h>
@@ -10,12 +11,18 @@
 #include <libcamera/base/log.h>
 
 #include <libcamera/geometry.h>
+#include <libcamera/stream.h>
 
+#include <EGL/egl.h>
+#include <EGL/eglext.h>
 #include <libcamera/internal/mapped_framebuffer.h>
+
+#include "shaderClass.h"
 
 namespace libcamera {
 
 class FrameBuffer;
+class GlRenderTarget;
 
 class SimpleConverter
 {
@@ -23,16 +30,16 @@ public:
 	std::unique_ptr<FrameBuffer> queueBuffers(FrameBuffer *input, FrameBuffer *output);
 	void start();
 	void stop();
-	std::vector<std::unique_ptr<FrameBuffer>> exportBuffers(unsigned int count,
-								std::vector<std::unique_ptr<FrameBuffer>> *buffers);
-	std::pair<std::unique_ptr<FrameBuffer>, GlRenderTarget> createBuffer(unsigned int index);
-	int configure(const StreamConfiguration &inputCfg,
-		      const StreamConfiguration &outputCfg);
+	int exportBuffers(unsigned int count,
+			  std::vector<std::unique_ptr<FrameBuffer>> *buffers);
+	std::pair<std::unique_ptr<FrameBuffer>, GlRenderTarget> createBuffer();
+	void configure(const StreamConfiguration &inputCfg,
+		       const StreamConfiguration &outputCfg);
 	struct dmabuf_image {
 		GLuint texture;
 		EGLImageKHR image;
 	};
-	dmabuf_image import_dmabuf(int fd, Size pixelSize, libcamera::PixelFormat format);
+	dmabuf_image import_dmabuf(int fdesc, Size pixelSize, libcamera::PixelFormat format);
 	struct converterFormat {
 		struct Plane {
 			uint32_t size = 0;
@@ -58,7 +65,7 @@ private:
 	EGLDisplay dpy;
 	EGLSurface srf;
 	EGLContext ctx;
-	int fd;
+	int dev;
 	struct gbm_device *gbm;
 	struct gbm_bo *bo;
 	unsigned int FBO;

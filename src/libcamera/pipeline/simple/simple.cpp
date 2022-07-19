@@ -37,7 +37,7 @@
 
 #include <queue>
 
-#include "converter_gl.h"
+#include "converter.h"
 
 namespace libcamera {
 
