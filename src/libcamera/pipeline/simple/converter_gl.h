@@ -9,6 +9,7 @@
 #include <unistd.h>
 
 #include <libcamera/base/log.h>
+#include <libcamera/base/signal.h>
 
 #include <libcamera/geometry.h>
 #include <libcamera/stream.h>
@@ -27,18 +28,25 @@ class GlRenderTarget;
 class SimpleConverter
 {
 public:
-	std::unique_ptr<FrameBuffer> queueBuffers(FrameBuffer *input, FrameBuffer *output);
-	void start();
+	int queueBuffers(FrameBuffer *input,
+			 const std::map<unsigned int, FrameBuffer *> &outputs);
+
+	int start();
 	void stop();
-	int exportBuffers(unsigned int count,
+	int configure(const StreamConfiguration &inputCfg,
+		      const std::vector<std::reference_wrapper<StreamConfiguration>> &outputCfgs);
+	int exportBuffers(unsigned int output, unsigned int count,
 			  std::vector<std::unique_ptr<FrameBuffer>> *buffers);
 	std::pair<std::unique_ptr<FrameBuffer>, GlRenderTarget> createBuffer();
-	void configure(const StreamConfiguration &inputCfg,
-		       const StreamConfiguration &outputCfg);
+	bool isValid() const { return true; }
+	Signal<FrameBuffer *> inputBufferReady;
+	Signal<FrameBuffer *> outputBufferReady;
+
 	struct dmabuf_image {
 		GLuint texture;
 		EGLImageKHR image;
 	};
+
 	dmabuf_image import_dmabuf(int fdesc, Size pixelSize, libcamera::PixelFormat format);
 	struct converterFormat {
 		struct Plane {
@@ -54,12 +62,11 @@ public:
 	Shader shaderProgram;
 	Shader framebufferProgram;
 	std::vector<GlRenderTarget> outputBuffers;
-	// struct tex {
-	// 	int dmafd;
-	// 	dmabuf_image texture;
-	// };
 
 private:
+	int queueBufferGL(FrameBuffer *input, FrameBuffer *output);
+	int configureGL(const StreamConfiguration &inputCfg,
+			const StreamConfiguration &outputCfg);
 	std::map<libcamera::FrameBuffer *, std::unique_ptr<MappedFrameBuffer>>
 		mappedBuffers_;
 	EGLDisplay dpy;
@@ -71,16 +78,15 @@ private:
 	unsigned int FBO;
 };
 
-class GlRenderTarget : public SimpleConverter
+class GlRenderTarget
 {
 public:
-	struct dmabuf_image texture;
+	struct SimpleConverter::dmabuf_image texture;
 
-	//private:
 	// This is never to be dereferenced. Only serves for comparison
 	const FrameBuffer *buffer;
 
-	GlRenderTarget(FrameBuffer *buffer_, struct dmabuf_image texture_)
+	GlRenderTarget(FrameBuffer *buffer_, struct SimpleConverter::dmabuf_image texture_)
 		: texture(texture_),
 		  buffer(buffer_)
 	{

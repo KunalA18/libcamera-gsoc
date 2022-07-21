@@ -7,7 +7,7 @@
 
 #include <libcamera/formats.h>
 #include <libcamera/framebuffer.h>
-
+#define GL_GLEXT_PROTOTYPES
 #include <GL/gl.h>
 #include <GL/glew.h>
 
@@ -26,19 +26,35 @@ float rectangleVertices[] = {
 	-1.0f, 1.0f, 0.0f, 1.0f
 };
 
-void SimpleConverter::configure(const StreamConfiguration &inputCfg,
-				const StreamConfiguration &outputCfg)
+int SimpleConverter::configure(const StreamConfiguration &inputCfg,
+			       const std::vector<std::reference_wrapper<StreamConfiguration>> &outputCfgs)
+{
+	int ret = 0;
+	for (unsigned int i = 0; i < outputCfgs.size(); ++i) {
+		ret = configureGL(inputCfg, outputCfgs[i]);
+		if (ret < 0)
+			break;
+	}
+
+	return 0;
+}
+
+int SimpleConverter::configureGL(const StreamConfiguration &inputCfg,
+				 const StreamConfiguration &outputCfg)
 {
 	informat.size = inputCfg.size;
 	informat.planes[0].bpl = inputCfg.stride;
 	outformat.size = outputCfg.size;
 	outformat.planes[0].bpl = outputCfg.stride;
-	// format.size = outputCfg.pixelFormat;
+	return 0;
 }
 
-int SimpleConverter::exportBuffers(unsigned int count,
+int SimpleConverter::exportBuffers(unsigned int output, unsigned int count,
 				   std::vector<std::unique_ptr<FrameBuffer>> *buffers)
 {
+	if (output != 0) {
+		return -1;
+	}
 	if (outputBuffers.size() > 0) {
 		return -1;
 	}
@@ -57,12 +73,8 @@ int SimpleConverter::exportBuffers(unsigned int count,
 std::pair<std::unique_ptr<FrameBuffer>, GlRenderTarget> SimpleConverter::createBuffer()
 {
 	bo = gbm_bo_create(gbm, outformat.size.width, outformat.size.height, GBM_BO_FORMAT_ARGB8888, GBM_BO_USE_RENDERING);
-	unsigned int filedesc = gbm_bo_get_fd_for_plane(bo, 0);
+	unsigned int filedesc = gbm_bo_get_fd(bo);
 	dmabuf_image dimg = import_dmabuf(filedesc, outformat.size, libcamera::formats::ARGB8888);
-
-	// auto gltexture = dimg.texture;
-	// struct tex text;
-	// text.texture = dimg.texture;
 
 	std::vector<FrameBuffer::Plane> planes;
 	UniqueFD fd(filedesc);
@@ -117,14 +129,14 @@ SimpleConverter::dmabuf_image SimpleConverter::import_dmabuf(int fdesc, Size pix
 		.image = image,
 	};
 
-	// glBindTexture(GL_TEXTURE_2D, texture);
-	// auto glEGLImageTargetTexture2DOES = (PFNGLEGLIMAGETARGETTEXTURE2DOESPROC)eglGetProcAddress("glEGLImageTargetTexture2DOES");
-	// glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, image);
+	//glBindTexture(GL_TEXTURE_2D, texture);
+	//auto glEGLImageTargetTexture2DOES = (PFNGLEGLIMAGETARGETTEXTURE2DOESPROC)eglGetProcAddress("glEGLImageTargetTexture2DOES");
+	//glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, image);
 
 	return img;
 }
 
-void SimpleConverter::start()
+int SimpleConverter::start()
 {
 	assert(eglBindAPI(EGL_OPENGL_API) == EGL_TRUE);
 	dev = open("/dev/dri/card0", O_RDWR); /*confirm*/
@@ -155,9 +167,26 @@ void SimpleConverter::start()
 	glewInit();
 	shaderProgram.callShader("default.vert", "default.frag");
 	framebufferProgram.callShader("bayer_8.vert", "bayer_8.frag");
+	return 0;
 }
 
-std::unique_ptr<FrameBuffer> SimpleConverter::queueBuffers(FrameBuffer *input, FrameBuffer *output)
+int SimpleConverter::queueBuffers(FrameBuffer *input,
+				  const std::map<unsigned int, FrameBuffer *> &outputs)
+{
+	int ret;
+	if (outputs.empty())
+		return -EINVAL;
+
+	for (auto &ib : outputs) {
+		ret = queueBufferGL(input, ib.second);
+		if (ret < 0)
+			return ret;
+	}
+
+	return 0;
+}
+
+int SimpleConverter::queueBufferGL(FrameBuffer *input, FrameBuffer *output)
 {
 	framebufferProgram.Activate();
 	glBindAttribLocation(framebufferProgram.ID, 0, "vertexIn");
@@ -185,15 +214,9 @@ std::unique_ptr<FrameBuffer> SimpleConverter::queueBuffers(FrameBuffer *input, F
 
 	glGenFramebuffers(1, &FBO);
 	glBindFramebuffer(GL_FRAMEBUFFER, FBO);
+	dmabuf_image rend_tex = import_dmabuf(output->planes()[0].fd.get(), outformat.size, libcamera::formats::ARGB8888);
 
-	Texture home(mappedBuffers_[input].get(), GL_TEXTURE_2D, GL_TEXTURE0, GL_LUMINANCE, GL_UNSIGNED_BYTE, informat.size);
-
-	/* Create Render Buffer Object
-	unsigned int RBO;
-	glGenRenderbuffers(1, &RBO);
-	glBindRenderbuffer(GL_RENDERBUFFER, RBO);
-	glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, 700, 700);
-	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, RBO);*/
+	Texture home(mappedBuffers_[input].get(), GL_TEXTURE_2D, GL_TEXTURE0, GL_LUMINANCE, GL_UNSIGNED_BYTE, informat.size, rend_tex.texture);
 
 	/* Error checking framebuffer*/
 	auto fboStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER);
@@ -202,23 +225,20 @@ std::unique_ptr<FrameBuffer> SimpleConverter::queueBuffers(FrameBuffer *input, F
 
 	/* Main*/
 	/* Bind the custom framebuffer*/
-	//glBindFramebuffer(GL_FRAMEBUFFER, FBO);
+	glBindFramebuffer(GL_FRAMEBUFFER, FBO);
 	/* Specify the color of the background*/
 	glClearColor(0.54f, 0.1f, 0.57f, 1.0f);
 	/* Clean the back buffer and assign the new color to it*/
 	glClear(GL_COLOR_BUFFER_BIT);
-	/* Enable depth testing since it's disabled when drawing the framebuffer rectangle*/
-	//glEnable(GL_DEPTH_TEST);
 	/* Bind the default framebuffer*/
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	/* Draw the framebuffer rectangle*/
 	framebufferProgram.Activate();
 	glBindVertexArray(rectVAO);
-	//glDisable(GL_DEPTH_TEST); /*prevents framebuffer rectangle from being discarded*/
 	home.Bind();
 	glDrawArrays(GL_TRIANGLES, 0, 6);
 
-	return std::make_unique<FrameBuffer>(output);
+	return 0;
 }
 
 void SimpleConverter::stop()

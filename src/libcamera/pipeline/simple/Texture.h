@@ -17,7 +17,7 @@ class Texture
 public:
 	GLuint ID;
 	GLenum type;
-	Texture(MappedFrameBuffer *image, GLenum texType, GLenum slot, GLenum format, GLenum pixelType, Size Pixelsize);
+	Texture(MappedFrameBuffer *image, GLenum texType, GLenum slot, GLenum format, GLenum pixelType, Size Pixelsize, GLuint rend_text);
 
 	// Assigns a texture unit to a texture
 	void texUnit(Shader &shader, const char *uniform, GLuint unit);

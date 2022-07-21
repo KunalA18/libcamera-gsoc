@@ -4,7 +4,6 @@ libcamera_sources += files([
     'Texture.cpp',
     'ShaderClass.cpp',
     'converter_gl.cpp',
-    'converter.cpp',
     'simple.cpp',
 ])
 

@@ -3,18 +3,11 @@
 #include <libcamera/framebuffer.h>
 
 namespace libcamera {
-Texture::Texture(MappedFrameBuffer *image, GLenum texType, GLenum slot, GLenum format, GLenum pixelType, Size Pixelsize)
+Texture::Texture(MappedFrameBuffer *image, GLenum texType, GLenum slot, GLenum format, GLenum pixelType, Size Pixelsize, GLuint rend_text)
 {
 	// Assigns the type of the texture to the texture object
 	type = texType;
-
-	// Stores the width, height, and the number of color channels of the image
-	//int widthImg, heightImg;
-
-	/*
-	widthImg=stride_;
-	heightImg=size_.height();
-	*/
+	ID = rend_text;
 
 	// Generates an OpenGL texture object
 	glGenTextures(1, &ID);
@@ -31,7 +24,7 @@ Texture::Texture(MappedFrameBuffer *image, GLenum texType, GLenum slot, GLenum f
 
 	// Assigns the image to the OpenGL Texture object
 	glTexImage2D(texType, 0, GL_LUMINANCE, Pixelsize.width, Pixelsize.height, 0, format, pixelType, image->planes()[0].data());
-	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texType, 0);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, ID, 0);
 
 	// Unbinds the OpenGL Texture object so that it can't accidentally be modified
 	glBindTexture(texType, 0);
