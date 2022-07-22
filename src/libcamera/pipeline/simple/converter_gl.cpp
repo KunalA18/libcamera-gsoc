@@ -2,12 +2,16 @@
 
 #include <Texture.h>
 #include <gbm.h>
+#include <limits.h>
 
 #include <libcamera/base/unique_fd.h>
 
 #include <libcamera/formats.h>
 #include <libcamera/framebuffer.h>
-#define GL_GLEXT_PROTOTYPES
+
+#include <libcamera/internal/formats.h>
+
+//#define GL_GLEXT_PROTOTYPES
 #include <GL/gl.h>
 #include <GL/glew.h>
 
@@ -47,6 +51,30 @@ int SimpleConverter::configureGL(const StreamConfiguration &inputCfg,
 	outformat.size = outputCfg.size;
 	outformat.planes[0].bpl = outputCfg.stride;
 	return 0;
+}
+
+std::vector<PixelFormat> SimpleConverter::formats([[maybe_unused]] PixelFormat input)
+{
+	PixelFormat pixelFormat;
+	std::vector<PixelFormat> pixelFormats;
+	pixelFormats.push_back(pixelFormat.fromString("RGB888"));
+	pixelFormats.push_back(pixelFormat.fromString("ARGB8888"));
+	return pixelFormats;
+}
+
+SizeRange SimpleConverter::sizes([[maybe_unused]] const Size &input)
+{
+	SizeRange sizes;
+	sizes.min = { 1, 1 };
+	sizes.min = { UINT_MAX, UINT_MAX };
+	return sizes;
+}
+
+std::tuple<unsigned int, unsigned int>
+SimpleConverter::strideAndFrameSize([[maybe_unused]] const PixelFormat &pixelFormat, const Size &sz)
+{
+	PixelFormatInfo format;
+	return std::make_tuple(format.stride(sz.width, 0, 1), format.frameSize(sz, 1));
 }
 
 int SimpleConverter::exportBuffers(unsigned int output, unsigned int count,
@@ -130,8 +158,8 @@ SimpleConverter::dmabuf_image SimpleConverter::import_dmabuf(int fdesc, Size pix
 	};
 
 	glBindTexture(GL_TEXTURE_2D, texture);
-	auto glEGLImageTargetTexture2DOES = (PFNGLEGLIMAGETARGETTEXTURE2DOESPROC)eglGetProcAddress("glEGLImageTargetTexture2DOES");
-	glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, image);
+	//auto glEGLImageTargetTexture2DOES = (PFNGLEGLIMAGETARGETTEXTURE2DOESPROC)eglGetProcAddress("glEGLImageTargetTexture2DOES");
+	//glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, image);
 
 	return img;
 }

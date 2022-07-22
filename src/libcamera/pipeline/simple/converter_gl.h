@@ -39,13 +39,31 @@ public:
 			  std::vector<std::unique_ptr<FrameBuffer>> *buffers);
 	std::pair<std::unique_ptr<FrameBuffer>, GlRenderTarget> createBuffer();
 	bool isValid() const { return true; }
+	std::vector<PixelFormat> formats(PixelFormat input);
+	SizeRange sizes(const Size &input);
+
+	std::tuple<unsigned int, unsigned int>
+	strideAndFrameSize(const PixelFormat &pixelFormat, const Size &size);
 	Signal<FrameBuffer *> inputBufferReady;
 	Signal<FrameBuffer *> outputBufferReady;
-
 	struct dmabuf_image {
 		GLuint texture;
 		EGLImageKHR image;
 	};
+
+private:
+	int queueBufferGL(FrameBuffer *input, FrameBuffer *output);
+	int configureGL(const StreamConfiguration &inputCfg,
+			const StreamConfiguration &outputCfg);
+	std::map<libcamera::FrameBuffer *, std::unique_ptr<MappedFrameBuffer>>
+		mappedBuffers_;
+	EGLDisplay dpy;
+	EGLSurface srf;
+	EGLContext ctx;
+	int dev;
+	struct gbm_device *gbm;
+	struct gbm_bo *bo;
+	unsigned int FBO;
 
 	dmabuf_image import_dmabuf(int fdesc, Size pixelSize, libcamera::PixelFormat format);
 	struct converterFormat {
@@ -62,20 +80,6 @@ public:
 	Shader shaderProgram;
 	Shader framebufferProgram;
 	std::vector<GlRenderTarget> outputBuffers;
-
-private:
-	int queueBufferGL(FrameBuffer *input, FrameBuffer *output);
-	int configureGL(const StreamConfiguration &inputCfg,
-			const StreamConfiguration &outputCfg);
-	std::map<libcamera::FrameBuffer *, std::unique_ptr<MappedFrameBuffer>>
-		mappedBuffers_;
-	EGLDisplay dpy;
-	EGLSurface srf;
-	EGLContext ctx;
-	int dev;
-	struct gbm_device *gbm;
-	struct gbm_bo *bo;
-	unsigned int FBO;
 };
 
 class GlRenderTarget

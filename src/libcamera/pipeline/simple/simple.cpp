@@ -456,7 +456,7 @@ int SimpleCameraData::init()
 	/* Open the converter, if any. */
 	MediaDevice *converter = pipe->converter();
 	if (converter) {
-		converter_ = std::make_unique<SimpleConverter>(converter);
+		converter_ = std::make_unique<SimpleConverter>();
 		if (!converter_->isValid()) {
 			LOG(SimplePipeline, Warning)
 				<< "Failed to create converter, disabling format conversion";
