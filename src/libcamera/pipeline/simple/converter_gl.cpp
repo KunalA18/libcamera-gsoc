@@ -129,9 +129,9 @@ SimpleConverter::dmabuf_image SimpleConverter::import_dmabuf(int fdesc, Size pix
 		.image = image,
 	};
 
-	//glBindTexture(GL_TEXTURE_2D, texture);
-	//auto glEGLImageTargetTexture2DOES = (PFNGLEGLIMAGETARGETTEXTURE2DOESPROC)eglGetProcAddress("glEGLImageTargetTexture2DOES");
-	//glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, image);
+	glBindTexture(GL_TEXTURE_2D, texture);
+	auto glEGLImageTargetTexture2DOES = (PFNGLEGLIMAGETARGETTEXTURE2DOESPROC)eglGetProcAddress("glEGLImageTargetTexture2DOES");
+	glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, image);
 
 	return img;
 }
