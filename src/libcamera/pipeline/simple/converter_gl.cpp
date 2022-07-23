@@ -193,6 +193,7 @@ int SimpleConverter::start()
 
 	/*Load GLEW so it configures OpenGL*/
 	glewInit();
+
 	shaderProgram.callShader("default.vert", "default.frag");
 	framebufferProgram.callShader("bayer_8.vert", "bayer_8.frag");
 	return 0;

@@ -454,18 +454,18 @@ int SimpleCameraData::init()
 	int ret;
 
 	/* Open the converter, if any. */
-	MediaDevice *converter = pipe->converter();
-	if (converter) {
-		converter_ = std::make_unique<SimpleConverter>();
-		if (!converter_->isValid()) {
-			LOG(SimplePipeline, Warning)
-				<< "Failed to create converter, disabling format conversion";
-			converter_.reset();
-		} else {
-			converter_->inputBufferReady.connect(this, &SimpleCameraData::converterInputDone);
-			converter_->outputBufferReady.connect(this, &SimpleCameraData::converterOutputDone);
-		}
+	[[maybe_unused]] MediaDevice *converter = pipe->converter();
+	//if (converter) {
+	converter_ = std::make_unique<SimpleConverter>();
+	if (!converter_->isValid()) {
+		LOG(SimplePipeline, Warning)
+			<< "Failed to create converter, disabling format conversion";
+		converter_.reset();
+	} else {
+		converter_->inputBufferReady.connect(this, &SimpleCameraData::converterInputDone);
+		converter_->outputBufferReady.connect(this, &SimpleCameraData::converterOutputDone);
 	}
+	//}
 
 	video_ = pipe->video(entities_.back().entity);
 	ASSERT(video_);

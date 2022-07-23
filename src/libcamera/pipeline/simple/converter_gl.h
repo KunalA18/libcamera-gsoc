@@ -28,22 +28,25 @@ class GlRenderTarget;
 class SimpleConverter
 {
 public:
-	int queueBuffers(FrameBuffer *input,
-			 const std::map<unsigned int, FrameBuffer *> &outputs);
-
-	int start();
-	void stop();
 	int configure(const StreamConfiguration &inputCfg,
 		      const std::vector<std::reference_wrapper<StreamConfiguration>> &outputCfgs);
-	int exportBuffers(unsigned int output, unsigned int count,
-			  std::vector<std::unique_ptr<FrameBuffer>> *buffers);
-	std::pair<std::unique_ptr<FrameBuffer>, GlRenderTarget> createBuffer();
-	bool isValid() const { return true; }
 	std::vector<PixelFormat> formats(PixelFormat input);
 	SizeRange sizes(const Size &input);
 
 	std::tuple<unsigned int, unsigned int>
 	strideAndFrameSize(const PixelFormat &pixelFormat, const Size &size);
+
+	int queueBuffers(FrameBuffer *input,
+			 const std::map<unsigned int, FrameBuffer *> &outputs);
+
+	int start();
+	void stop();
+
+	int exportBuffers(unsigned int output, unsigned int count,
+			  std::vector<std::unique_ptr<FrameBuffer>> *buffers);
+	std::pair<std::unique_ptr<FrameBuffer>, GlRenderTarget> createBuffer();
+	bool isValid() const { return true; }
+
 	Signal<FrameBuffer *> inputBufferReady;
 	Signal<FrameBuffer *> outputBufferReady;
 	struct dmabuf_image {
@@ -52,9 +55,11 @@ public:
 	};
 
 private:
-	int queueBufferGL(FrameBuffer *input, FrameBuffer *output);
 	int configureGL(const StreamConfiguration &inputCfg,
 			const StreamConfiguration &outputCfg);
+	dmabuf_image import_dmabuf(int fdesc, Size pixelSize, libcamera::PixelFormat format);
+	int queueBufferGL(FrameBuffer *input, FrameBuffer *output);
+
 	std::map<libcamera::FrameBuffer *, std::unique_ptr<MappedFrameBuffer>>
 		mappedBuffers_;
 	EGLDisplay dpy;
@@ -65,7 +70,6 @@ private:
 	struct gbm_bo *bo;
 	unsigned int FBO;
 
-	dmabuf_image import_dmabuf(int fdesc, Size pixelSize, libcamera::PixelFormat format);
 	struct converterFormat {
 		struct Plane {
 			uint32_t size = 0;
