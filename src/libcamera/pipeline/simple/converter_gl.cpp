@@ -74,7 +74,8 @@ std::tuple<unsigned int, unsigned int>
 SimpleConverter::strideAndFrameSize([[maybe_unused]] const PixelFormat &pixelFormat, const Size &sz)
 {
 	PixelFormatInfo format;
-	return std::make_tuple(format.stride(sz.width, 0, 1), format.frameSize(sz, 1));
+	format.info(pixelFormat);
+	return std::make_tuple(format.stride(sz.width, format.info(pixelFormat).numPlanes(), 1), format.frameSize(sz, 1));
 }
 
 int SimpleConverter::exportBuffers(unsigned int output, unsigned int count,
