@@ -1,3 +1,10 @@
+/* SPDX-License-Identifier: LGPL-2.1-or-later */
+/*
+ * Copyright (C) 2022, Kunal Agarwal
+ *
+ * converter_gl.cpp - GL converter for debayering
+ */
+
 #pragma once
 
 #include <assert.h>
@@ -14,11 +21,12 @@
 #include <libcamera/geometry.h>
 #include <libcamera/stream.h>
 
+#include "libcamera/internal/mapped_framebuffer.h"
+
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
-#include <libcamera/internal/mapped_framebuffer.h>
 
-#include "shaderClass.h"
+#include "shader.h"
 
 namespace libcamera {
 
@@ -49,7 +57,7 @@ public:
 
 	Signal<FrameBuffer *> inputBufferReady;
 	Signal<FrameBuffer *> outputBufferReady;
-	struct dmabuf_image {
+	struct DmabufImage {
 		GLuint texture;
 		EGLImageKHR image;
 	};
@@ -57,46 +65,49 @@ public:
 private:
 	int configureGL(const StreamConfiguration &inputCfg,
 			const StreamConfiguration &outputCfg);
-	dmabuf_image import_dmabuf(int fdesc, Size pixelSize, libcamera::PixelFormat format);
+	DmabufImage importDmabuf(int fdesc, Size pixelSize, PixelFormat format);
 	int queueBufferGL(FrameBuffer *input, FrameBuffer *output);
 
 	std::map<libcamera::FrameBuffer *, std::unique_ptr<MappedFrameBuffer>>
 		mappedBuffers_;
-	EGLDisplay dpy;
-	EGLSurface srf;
-	EGLContext ctx;
-	int dev;
-	struct gbm_device *gbm;
-	struct gbm_bo *bo;
-	unsigned int FBO;
 
-	struct converterFormat {
+	struct ConverterFormat {
 		struct Plane {
-			uint32_t size = 0;
-			uint32_t bpl = 0;
+			uint32_t size_ = 0;
+			uint32_t bpl_ = 0;
 		};
+		PixelFormat fourcc;
 		Size size;
 		std::array<Plane, 3> planes;
 		unsigned int planesCount = 0;
 	};
-	converterFormat informat;
-	converterFormat outformat;
-	Shader shaderProgram;
-	Shader framebufferProgram;
+
+	int device_;
+	unsigned int rectVAO, rectVBO;
+	EGLDisplay display_;
+	EGLContext context_;
+
+	struct gbm_device *gbm;
+	struct gbm_bo *bo;
+	unsigned int fbo_;
+
+	ConverterFormat informat_;
+	ConverterFormat outformat_;
+	ShaderProgram shaderProgram_;
+	ShaderProgram framebufferProgram_;
 	std::vector<GlRenderTarget> outputBuffers;
 };
 
 class GlRenderTarget
 {
 public:
-	struct SimpleConverter::dmabuf_image texture;
+	struct SimpleConverter::DmabufImage texture_;
 
-	// This is never to be dereferenced. Only serves for comparison
-	const FrameBuffer *buffer;
+	/* This is never to be dereferenced. Only serves for comparison */
+	const FrameBuffer *buffer_;
 
-	GlRenderTarget(FrameBuffer *buffer_, struct SimpleConverter::dmabuf_image texture_)
-		: texture(texture_),
-		  buffer(buffer_)
+	GlRenderTarget(FrameBuffer *buffer, struct SimpleConverter::DmabufImage texture)
+		: texture_(texture), buffer_(buffer)
 	{
 	}
 };
