@@ -17,16 +17,17 @@ namespace libcamera {
 class ShaderProgram
 {
 public:
-	/* Reference ID of the Shader Program */
-	GLuint id_;
-
 	void callShader(const char *vertexFile, const char *fragmentFile);
 
 	void activate();
 
 	void deleteProgram();
 
+	int id() const { return id_; };
+
 private:
+	/* Reference ID of the Shader Program */
+	GLuint id_;
 	void compileErrors(unsigned int shader, const char *type);
 };
 

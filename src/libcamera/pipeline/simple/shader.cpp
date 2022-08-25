@@ -5,19 +5,19 @@
  * shader.cpp - Shader Handling
  */
 
+#include "shader.h"
+
 #include <libcamera/base/file.h>
 #include <libcamera/base/log.h>
 
-#include <GL/glew.h>
-
-#include "shader.h"
+#include <GLES3/gl3.h>
 
 namespace libcamera {
 
-LOG_DEFINE_CATEGORY(SimplePipeline)
+LOG_DECLARE_CATEGORY(SimplePipeline)
 
 /* Reads a text file and outputs a string with everything in the text file */
-std::string get_file_contents(const char *filename)
+static std::string get_file_contents(const char *filename)
 {
 	std::string fullname = std::string("/home/pi/Desktop/compile/libcamera/src/libcamera/pipeline/simple/shader/") + filename;
 
@@ -26,7 +26,7 @@ std::string get_file_contents(const char *filename)
 		return "";
 
 	Span<uint8_t> data = file.map();
-	return std::string(data.data(), data.size());
+	return std::string(reinterpret_cast<char *>(data.data()), data.size());
 }
 
 /* Constructor that build the Shader Program from 2 different shaders */
@@ -63,7 +63,8 @@ void ShaderProgram::callShader(const char *vertexFile, const char *fragmentFile)
 
 	/* Delete the Vertex and Fragment Shader objects. Here, they are flagged for deletion
 	   and will not be deleted until they are detached from the program object. This frees
-	   up the memory used to store the shader source. */
+	   up the memory used to store the shader source.
+	*/
 	glDeleteShader(vertexShader);
 	glDeleteShader(fragmentShader);
 }
@@ -85,7 +86,7 @@ void ShaderProgram::compileErrors(unsigned int shader, const char *type)
 {
 	/* Stores status of compilation */
 	GLint hasCompiled;
-	GLint logLength;
+	GLint logLength = 1024;
 	/* Character array to store error message in */
 	glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &logLength);
 	char *infoLog = new char[logLength];
@@ -97,8 +98,12 @@ void ShaderProgram::compileErrors(unsigned int shader, const char *type)
 						   << type << "\t"
 						   << infoLog;
 		}
+
 	} else {
 		glGetProgramiv(shader, GL_LINK_STATUS, &hasCompiled);
+		int e = glGetError();
+		if (e != GL_NO_ERROR)
+			LOG(SimplePipeline, Error) << "GL_ERROR: " << e;
 		if (hasCompiled == GL_FALSE) {
 			glGetProgramInfoLog(shader, logLength, NULL, infoLog);
 			LOG(SimplePipeline, Error) << "SHADER_LINKING_ERROR for:"

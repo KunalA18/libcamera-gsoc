@@ -96,6 +96,7 @@ private:
 	ShaderProgram shaderProgram_;
 	ShaderProgram framebufferProgram_;
 	std::vector<GlRenderTarget> outputBuffers;
+	PFNEGLCREATEIMAGEKHRPROC eglCreateImageKHR = (PFNEGLCREATEIMAGEKHRPROC)eglGetProcAddress("eglCreateImageKHR");
 };
 
 class GlRenderTarget

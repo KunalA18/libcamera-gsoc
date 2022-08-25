@@ -455,8 +455,7 @@ int SimpleCameraData::init()
 	int ret;
 
 	/* Open the converter, if any. */
-	[[maybe_unused]] MediaDevice *converter = pipe->converter();
-	//if (converter) {
+
 	converter_ = std::make_unique<SimpleConverter>();
 	if (!converter_->isValid()) {
 		LOG(SimplePipeline, Warning)
@@ -466,7 +465,6 @@ int SimpleCameraData::init()
 		converter_->inputBufferReady.connect(this, &SimpleCameraData::converterInputDone);
 		converter_->outputBufferReady.connect(this, &SimpleCameraData::converterOutputDone);
 	}
-	//}
 
 	video_ = pipe->video(entities_.back().entity);
 	ASSERT(video_);
@@ -1286,7 +1284,7 @@ bool SimplePipelineHandler::match(DeviceEnumerator *enumerator)
 		DeviceMatch converterMatch(name);
 		converter_ = acquireMediaDevice(enumerator, converterMatch);
 		if (converter_) {
-			numStreams = streams;
+			numStreams = 1;
 			break;
 		}
 	}

@@ -5,6 +5,8 @@
  * converter_gl.cpp - GL converter for debayering
  */
 
+#include "converter_gl.h"
+
 #include <gbm.h>
 #include <limits.h>
 
@@ -15,10 +17,10 @@
 
 #include "libcamera/internal/formats.h"
 
-#include <GL/glew.h>
+#include <GLES3/gl3.h>
+#include <GLES3/gl3ext.h>
 
 #include "texture.h"
-#include "converter_gl.h"
 
 namespace libcamera {
 
@@ -38,6 +40,7 @@ float rectangleVertices[] = {
 int SimpleConverter::configure(const StreamConfiguration &inputCfg,
 			       const std::vector<std::reference_wrapper<StreamConfiguration>> &outputCfgs)
 {
+	LOG(SimplePipeline, Debug) << "CONFIGURE CALLED";
 	int ret = configureGL(inputCfg, outputCfgs.front());
 	return ret;
 }
@@ -45,15 +48,27 @@ int SimpleConverter::configure(const StreamConfiguration &inputCfg,
 int SimpleConverter::configureGL(const StreamConfiguration &inputCfg,
 				 const StreamConfiguration &outputCfg)
 {
+	LOG(SimplePipeline, Debug) << "CONFIGURE GL CALLED";
 	informat_.size = inputCfg.size;
 	informat_.planes[0].bpl_ = inputCfg.stride;
 	outformat_.size = outputCfg.size;
 	outformat_.planes[0].bpl_ = outputCfg.stride;
+	eglBindAPI(EGL_OPENGL_API);
+	device_ = open("/dev/dri/card0", O_RDWR);
+
+	if (!device_)
+		LOG(SimplePipeline, Error) << "GBM Device not opened ";
+
+	gbm = gbm_create_device(device_);
+
+	if (!gbm)
+		LOG(SimplePipeline, Error) << " GBM Device not created ";
 	return 0;
 }
 
 std::vector<PixelFormat> SimpleConverter::formats([[maybe_unused]] PixelFormat input)
 {
+	LOG(SimplePipeline, Debug) << "FORMATS CALLED";
 	return {
 		PixelFormat::fromString("RGB888"),
 		PixelFormat::fromString("ARGB8888"),
@@ -62,6 +77,7 @@ std::vector<PixelFormat> SimpleConverter::formats([[maybe_unused]] PixelFormat i
 
 SizeRange SimpleConverter::sizes(const Size &input)
 {
+	LOG(SimplePipeline, Debug) << "SIZES CALLED";
 	SizeRange sizes({ 1, 1 }, input);
 	return sizes;
 }
@@ -69,14 +85,15 @@ SizeRange SimpleConverter::sizes(const Size &input)
 std::tuple<unsigned int, unsigned int>
 SimpleConverter::strideAndFrameSize(const PixelFormat &pixelFormat, const Size &sz)
 {
-	PixelFormatInfo format;
-	format.info(pixelFormat);
-	return std::make_tuple(format.stride(sz.width, 0, 1), format.frameSize(sz, 1));
+	LOG(SimplePipeline, Debug) << "SAFS CALLED";
+	const PixelFormatInfo &info = PixelFormatInfo::info(pixelFormat);
+	return std::make_tuple(info.stride(sz.width, 0, 1), info.frameSize(sz, 1));
 }
 
 int SimpleConverter::exportBuffers(unsigned int output, unsigned int count,
 				   std::vector<std::unique_ptr<FrameBuffer>> *buffers)
 {
+	LOG(SimplePipeline, Debug) << "EXPORT BUFFERS CALLED";
 	if (output != 0)
 		return -EINVAL;
 
@@ -94,6 +111,7 @@ int SimpleConverter::exportBuffers(unsigned int output, unsigned int count,
 
 std::pair<std::unique_ptr<FrameBuffer>, GlRenderTarget> SimpleConverter::createBuffer()
 {
+	LOG(SimplePipeline, Debug) << "CREATE BUFFERS CALLED";
 	bo = gbm_bo_create(gbm, outformat_.size.width, outformat_.size.height,
 			   GBM_BO_FORMAT_ARGB8888, GBM_BO_USE_RENDERING);
 	if (!bo)
@@ -120,6 +138,7 @@ std::pair<std::unique_ptr<FrameBuffer>, GlRenderTarget> SimpleConverter::createB
 
 SimpleConverter::DmabufImage SimpleConverter::importDmabuf(int fdesc, Size pixelSize, PixelFormat format)
 {
+	LOG(SimplePipeline, Debug) << "IMPORT DMABUF CALLED";
 	int bytes_per_pixel = 4;
 	EGLint const attrs[] = {
 		EGL_WIDTH,
@@ -137,7 +156,6 @@ SimpleConverter::DmabufImage SimpleConverter::importDmabuf(int fdesc, Size pixel
 		EGL_NONE,
 	};
 
-	auto eglCreateImageKHR = (PFNEGLCREATEIMAGEKHRPROC)eglGetProcAddress("eglCreateImageKHR");
 	EGLImageKHR image = eglCreateImageKHR(
 		display_,
 		EGL_NO_CONTEXT,
@@ -166,16 +184,7 @@ SimpleConverter::DmabufImage SimpleConverter::importDmabuf(int fdesc, Size pixel
 
 int SimpleConverter::start()
 {
-	eglBindAPI(EGL_OPENGL_API);
-	device_ = open("/dev/dri/card0", O_RDWR);
-
-	if (!device_)
-		LOG(SimplePipeline, Error) << "GBM Device not opened ";
-
-	gbm = gbm_create_device(device_);
-
-	if (!gbm)
-		LOG(SimplePipeline, Error) << " GBM Device not created ";
+	LOG(SimplePipeline, Debug) << "START CALLED";
 
 	auto eglGetPlatformDisplayEXT = (PFNEGLGETPLATFORMDISPLAYEXTPROC)eglGetProcAddress("eglGetPlatformDisplayEXT");
 
@@ -184,13 +193,64 @@ int SimpleConverter::start()
 
 	/* initialize the EGL display connection */
 	eglInitialize(display_, NULL, NULL);
-	EGLConfig config;
-	EGLint n_of_configs;
+	//EGLConfig config;
+	//EGLint n_of_configs;
 
-	eglGetConfigs(display_, &config, 1, &n_of_configs);
+	//eglGetConfigs(display_, &config, 1, &n_of_configs);
 
-	context_ = eglCreateContext(display_, config, EGL_NO_CONTEXT, NULL);
+	//context_ = eglCreateContext(display_, config, EGL_NO_CONTEXT, NULL);
+	EGLConfig configs[32];
+	EGLint num_config;
+	EGLint const attribute_list_config[] = {
+		EGL_BUFFER_SIZE,
+		32,
+		EGL_DEPTH_SIZE,
+		EGL_DONT_CARE,
+		EGL_STENCIL_SIZE,
+		EGL_DONT_CARE,
+		EGL_RENDERABLE_TYPE,
+		EGL_OPENGL_ES2_BIT,
+		EGL_SURFACE_TYPE,
+		EGL_WINDOW_BIT,
+		EGL_NONE,
+	};
+	auto c = eglChooseConfig(display_, attribute_list_config, configs, 32, &num_config);
+	if (c != EGL_TRUE) {
+		EGLint err = eglGetError();
+		LOG(SimplePipeline, Error) << "<<< config failed: " << err;
+		return -1;
+	}
+	if (num_config == 0) {
+		LOG(SimplePipeline, Error) << "<<< found no configs " << std::endl;
+		return -1;
+	}
 
+	EGLConfig config = nullptr;
+	// Find a config whose native visual ID is the desired GBM format.
+	for (int i = 0; i < num_config; ++i) {
+		EGLint gbm_format;
+
+		if (!eglGetConfigAttrib(display_, configs[i],
+					EGL_NATIVE_VISUAL_ID, &gbm_format)) {
+			continue;
+		}
+
+		if (gbm_format == GBM_FORMAT_ARGB8888) {
+			config = configs[i];
+			break;
+		}
+	}
+
+	if (config == nullptr) {
+		return -1;
+	}
+	// create an EGL rendering context
+	EGLint const attrib_list[] = {
+		EGL_CONTEXT_MAJOR_VERSION, 1,
+		EGL_NONE
+	};
+
+	context_ = eglCreateContext(display_, config, EGL_NO_CONTEXT, attrib_list);
 	if (context_ == EGL_NO_CONTEXT) {
 		EGLint err = eglGetError();
 		LOG(SimplePipeline, Error) << " Context creation failed: " << err;
@@ -200,20 +260,24 @@ int SimpleConverter::start()
 	/* connect the context to the surface */
 	eglMakeCurrent(display_, EGL_NO_SURFACE, EGL_NO_SURFACE, context_);
 
-	/*Load GLEW so it configures OpenGL */
-	glewInit();
+	int e = glGetError();
 
-	shaderProgram_.callShader("default.vert", "default.frag");
+	if (e != GL_NO_ERROR)
+		LOG(SimplePipeline, Error) << "GL_ERROR: " << e;
+
+	//shaderProgram_.callShader("default.vert", "default.frag");
 	framebufferProgram_.callShader("bayer_8.vert", "bayer_8.frag");
+
 	framebufferProgram_.activate();
-	glBindAttribLocation(framebufferProgram_.id_, 0, "vertexIn");
-	glBindAttribLocation(framebufferProgram_.id_, 2, "textureIn");
-	glUniform1i(glGetUniformLocation(framebufferProgram_.id_, "tex_y"), 0);
-	glUniform2f(glGetUniformLocation(framebufferProgram_.id_, "tex_step"), 1.0f / (informat_.planes[0].bpl_ - 1),
+
+	glBindAttribLocation(framebufferProgram_.id(), 0, "vertexIn");
+	glBindAttribLocation(framebufferProgram_.id(), 2, "textureIn");
+	glUniform1i(glGetUniformLocation(framebufferProgram_.id(), "tex_y"), 0);
+	glUniform2f(glGetUniformLocation(framebufferProgram_.id(), "tex_step"), 1.0f / (informat_.planes[0].bpl_ - 1),
 		    1.0f / (informat_.size.height - 1));
-	glUniform2i(glGetUniformLocation(framebufferProgram_.id_, "tex_size"), informat_.size.width,
+	glUniform2i(glGetUniformLocation(framebufferProgram_.id(), "tex_size"), informat_.size.width,
 		    informat_.size.height);
-	glUniform2f(glGetUniformLocation(framebufferProgram_.id_, "tex_bayer_first_red"), 0.0, 1.0);
+	glUniform2f(glGetUniformLocation(framebufferProgram_.id(), "tex_bayer_first_red"), 0.0, 1.0);
 
 	/* Prepare framebuffer rectangle VBO and VAO */
 
@@ -238,6 +302,7 @@ int SimpleConverter::start()
 int SimpleConverter::queueBuffers(FrameBuffer *input,
 				  const std::map<unsigned int, FrameBuffer *> &outputs)
 {
+	LOG(SimplePipeline, Debug) << "QUEUE BUFFERS CALLED";
 	int ret;
 	if (outputs.empty())
 		return -EINVAL;
@@ -253,6 +318,7 @@ int SimpleConverter::queueBuffers(FrameBuffer *input,
 
 int SimpleConverter::queueBufferGL(FrameBuffer *input, FrameBuffer *output)
 {
+	LOG(SimplePipeline, Debug) << "QUEUEBUFFERS GL CALLED";
 	DmabufImage rend_tex = importDmabuf(output->planes()[0].fd.get(), outformat_.size, libcamera::formats::ARGB8888);
 
 	Texture bayer(GL_TEXTURE_2D, rend_tex.texture);
@@ -264,7 +330,7 @@ int SimpleConverter::queueBufferGL(FrameBuffer *input, FrameBuffer *output)
 	GLenum fboStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER);
 
 	if (fboStatus != GL_FRAMEBUFFER_COMPLETE)
-		std::cout << "Framebuffer error: " << fboStatus << std::endl;
+		LOG(SimplePipeline, Debug) << "Framebuffer error: " << fboStatus;
 
 	/* Main */
 	/* Bind the custom framebuffer */
@@ -286,8 +352,10 @@ int SimpleConverter::queueBufferGL(FrameBuffer *input, FrameBuffer *output)
 
 void SimpleConverter::stop()
 {
+	LOG(SimplePipeline, Debug) << "STOP CALLED";
 	/* Delete all the objects we've created */
-	shaderProgram_.deleteProgram();
+	framebufferProgram_.deleteProgram();
+	//shaderProgram_.deleteProgram();
 	glDeleteFramebuffers(1, &fbo_);
 	eglDestroyContext(display_, context_);
 	eglTerminate(display_);
