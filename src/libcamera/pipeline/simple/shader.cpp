@@ -88,9 +88,10 @@ void ShaderProgram::compileErrors(unsigned int shader, const char *type)
 	GLint hasCompiled;
 	GLint logLength = 1024;
 	/* Character array to store error message in */
-	glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &logLength);
-	char *infoLog = new char[logLength];
+
 	if (strcmp(type, "PROGRAM") != 0) {
+		glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &logLength);
+		char *infoLog = new char[logLength];
 		glGetShaderiv(shader, GL_COMPILE_STATUS, &hasCompiled);
 		if (hasCompiled == GL_FALSE) {
 			glGetShaderInfoLog(shader, logLength, NULL, infoLog);
@@ -100,16 +101,18 @@ void ShaderProgram::compileErrors(unsigned int shader, const char *type)
 		}
 
 	} else {
+		glGetProgramiv(shader, GL_INFO_LOG_LENGTH, &logLength);
+		char *infoLog = new char[logLength];
 		glGetProgramiv(shader, GL_LINK_STATUS, &hasCompiled);
-		int e = glGetError();
-		if (e != GL_NO_ERROR)
-			LOG(SimplePipeline, Error) << "GL_ERROR: " << e;
 		if (hasCompiled == GL_FALSE) {
 			glGetProgramInfoLog(shader, logLength, NULL, infoLog);
 			LOG(SimplePipeline, Error) << "SHADER_LINKING_ERROR for:"
 						   << type << "\t"
 						   << infoLog;
 		}
+		int e = glGetError();
+		if (e != GL_NO_ERROR)
+			LOG(SimplePipeline, Error) << "GL_ERROR: " << e;
 	}
 }
 } /* namespace libcamera */

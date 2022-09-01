@@ -275,7 +275,7 @@ int SimpleConverter::start()
 	glUniform1i(glGetUniformLocation(framebufferProgram_.id(), "tex_y"), 0);
 	glUniform2f(glGetUniformLocation(framebufferProgram_.id(), "tex_step"), 1.0f / (informat_.planes[0].bpl_ - 1),
 		    1.0f / (informat_.size.height - 1));
-	glUniform2i(glGetUniformLocation(framebufferProgram_.id(), "tex_size"), informat_.size.width,
+	glUniform2f(glGetUniformLocation(framebufferProgram_.id(), "tex_size"), informat_.size.width,
 		    informat_.size.height);
 	glUniform2f(glGetUniformLocation(framebufferProgram_.id(), "tex_bayer_first_red"), 0.0, 1.0);
 
@@ -320,10 +320,12 @@ int SimpleConverter::queueBufferGL(FrameBuffer *input, FrameBuffer *output)
 {
 	LOG(SimplePipeline, Debug) << "QUEUEBUFFERS GL CALLED";
 	DmabufImage rend_tex = importDmabuf(output->planes()[0].fd.get(), outformat_.size, libcamera::formats::ARGB8888);
-
+	MappedFrameBuffer r(input, MappedFrameBuffer::MapFlag::Read);
+	//LOG(SimplePipeline, Debug)
+	//	<< "CHECKING MAPPEDBUFFER" << r.planes().front();
 	Texture bayer(GL_TEXTURE_2D, rend_tex.texture);
 	bayer.initTexture(GL_TEXTURE0);
-	bayer.startTexture(mappedBuffers_[input].get(), GL_LUMINANCE, GL_UNSIGNED_BYTE, informat_.size);
+	bayer.startTexture(r.planes().data(), GL_LUMINANCE, GL_UNSIGNED_BYTE, informat_.size);
 	bayer.unbind();
 
 	/* Error checking framebuffer*/

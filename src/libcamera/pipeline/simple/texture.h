@@ -28,7 +28,7 @@ public:
 
 	void initTexture(GLenum slot);
 
-	void startTexture(MappedFrameBuffer *image, GLenum format, GLenum pixelType, Size pixelSize);
+	void startTexture(const MappedBuffer::Plane *image, GLenum format, GLenum pixelType, Size pixelSize);
 
 	void texUnit(ShaderProgram &shader, const char *uniform, GLuint unit);
 
