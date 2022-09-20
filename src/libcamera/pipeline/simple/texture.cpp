@@ -12,12 +12,15 @@
 #include <GLES3/gl3.h>
 
 namespace libcamera {
+
+LOG_DECLARE_CATEGORY(SimplePipeline)
+
 void Texture::initTexture(GLenum slot)
 {
 	/* Generates an OpenGL texture object and assigns the texture to a Texture Unit  */
-	glGenTextures(1, &idTex_);
+	//glGenTextures(1, &idTex_);
 	glActiveTexture(slot);
-	glBindTexture(type_, idTex_);
+	//glBindTexture(type_, idTex_);
 
 	/* Configures the type of algorithm that is used to make the image smaller or bigger */
 	glTexParameteri(type_, GL_TEXTURE_MIN_FILTER, GL_NEAREST);

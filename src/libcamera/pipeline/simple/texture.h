@@ -7,6 +7,8 @@
 
 #pragma once
 
+#include <libcamera/base/log.h>
+
 #include <libcamera/geometry.h>
 
 #include "libcamera/internal/mapped_framebuffer.h"
