@@ -31,10 +31,11 @@ void Texture::initTexture(GLenum slot)
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 }
 
-void Texture::startTexture(const MappedBuffer::Plane *image, GLenum format, GLenum pixelType, Size pixelSize)
+//void Texture::startTexture([[maybe_unused]] const MappedBuffer::Plane *image, [[maybe_unused]] GLenum format, [[maybe_unused]] GLenum pixelType, [[maybe_unused]] Size pixelSize)
+void Texture::startTexture()
 {
 	/* Assigns the image to the OpenGL Texture object */
-	glTexImage2D(type_, 0, GL_LUMINANCE, pixelSize.width, pixelSize.height, 0, format, pixelType, image->data());
+	//glTexImage2D(type_, 0, GL_LUMINANCE, pixelSize.width, pixelSize.height, 0, format, pixelType, image->data());
 	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, idTex_, 0);
 }
 

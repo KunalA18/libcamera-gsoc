@@ -319,13 +319,15 @@ int SimpleConverter::queueBuffers(FrameBuffer *input,
 int SimpleConverter::queueBufferGL(FrameBuffer *input, FrameBuffer *output)
 {
 	LOG(SimplePipeline, Debug) << "QUEUEBUFFERS GL CALLED";
-	DmabufImage rend_tex = importDmabuf(output->planes()[0].fd.get(), outformat_.size, libcamera::formats::ARGB8888);
-	MappedFrameBuffer r(input, MappedFrameBuffer::MapFlag::Read);
+	DmabufImage rend_texIn = importDmabuf(input->planes()[0].fd.get(), outformat_.size, libcamera::formats::ARGB8888);
+	DmabufImage rend_texOut = importDmabuf(output->planes()[0].fd.get(), outformat_.size, libcamera::formats::ARGB8888);
+	//MappedFrameBuffer r(input, MappedFrameBuffer::MapFlag::Read);
 	//LOG(SimplePipeline, Debug)
 	//	<< "CHECKING MAPPEDBUFFER" << r.planes().front();
-	Texture bayer(GL_TEXTURE_2D, rend_tex.texture);
+	Texture bayer(GL_TEXTURE_2D, rend_texOut.texture);
 	bayer.initTexture(GL_TEXTURE0);
-	bayer.startTexture(r.planes().data(), GL_LUMINANCE, GL_UNSIGNED_BYTE, informat_.size);
+	//bayer.startTexture(r.planes().data(), GL_LUMINANCE, GL_UNSIGNED_BYTE, informat_.size);
+	bayer.startTexture();
 	bayer.unbind();
 
 	/* Error checking framebuffer*/
