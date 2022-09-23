@@ -344,7 +344,7 @@ int SimpleConverter::queueBufferGL(FrameBuffer *input, FrameBuffer *output)
 	/* Clean the back buffer and assign the new color to it */
 	glClear(GL_COLOR_BUFFER_BIT);
 	/* Bind the default framebuffer */
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	//glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	/* Draw the framebuffer rectangle */
 	framebufferProgram_.activate();
 	glBindVertexArray(rectVAO);
