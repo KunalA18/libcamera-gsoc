@@ -59,9 +59,9 @@ int SimpleConverter::configureGL(const StreamConfiguration &inputCfg,
 	if (!device_)
 		LOG(SimplePipeline, Error) << "GBM Device not opened ";
 
-	gbm = gbm_create_device(device_);
+	gbm_ = gbm_create_device(device_);
 
-	if (!gbm)
+	if (!gbm_)
 		LOG(SimplePipeline, Error) << " GBM Device not created ";
 	return 0;
 }
@@ -102,9 +102,9 @@ int SimpleConverter::exportBuffers(unsigned int output, unsigned int count,
 
 	std::vector<std::unique_ptr<FrameBuffer>> out;
 	for (unsigned i = 0; i < count; ++i) {
-		auto tex = createBuffer();
-		outputBuffers.emplace_back(tex.second);
-		buffers->push_back(std::move(tex.first));
+		auto tex_ = createBuffer();
+		outputBuffers.emplace_back(tex_.second);
+		buffers->push_back(std::move(tex_.first));
 	}
 	return count;
 }
@@ -112,12 +112,12 @@ int SimpleConverter::exportBuffers(unsigned int output, unsigned int count,
 std::pair<std::unique_ptr<FrameBuffer>, GlRenderTarget> SimpleConverter::createBuffer()
 {
 	LOG(SimplePipeline, Debug) << "CREATE BUFFERS CALLED";
-	bo = gbm_bo_create(gbm, outformat_.size.width, outformat_.size.height,
-			   GBM_BO_FORMAT_ARGB8888, GBM_BO_USE_RENDERING);
-	if (!bo)
+	bo_ = gbm_bo_create(gbm_, outformat_.size.width, outformat_.size.height,
+			    GBM_BO_FORMAT_ARGB8888, GBM_BO_USE_RENDERING);
+	if (!bo_)
 		LOG(SimplePipeline, Error) << "GBM buffer not created ";
 
-	unsigned int filedesc = gbm_bo_get_fd(bo);
+	unsigned int filedesc = gbm_bo_get_fd(bo_);
 
 	LOG(SimplePipeline, Debug) << "File Descriptor value: " << filedesc;
 
@@ -127,8 +127,8 @@ std::pair<std::unique_ptr<FrameBuffer>, GlRenderTarget> SimpleConverter::createB
 	UniqueFD fd(filedesc);
 	FrameBuffer::Plane plane;
 	plane.fd = SharedFD(std::move(fd));
-	plane.offset = gbm_bo_get_offset(bo, 0);
-	plane.length = gbm_bo_get_stride_for_plane(bo, 0) * outformat_.size.height;
+	plane.offset = gbm_bo_get_offset(bo_, 0);
+	plane.length = gbm_bo_get_stride_for_plane(bo_, 0) * outformat_.size.height;
 
 	planes.push_back(std::move(plane));
 
@@ -189,7 +189,7 @@ int SimpleConverter::start()
 	auto eglGetPlatformDisplayEXT = (PFNEGLGETPLATFORMDISPLAYEXTPROC)eglGetProcAddress("eglGetPlatformDisplayEXT");
 
 	/* get an EGL display connection */
-	display_ = eglGetPlatformDisplayEXT(EGL_PLATFORM_GBM_MESA, gbm, NULL);
+	display_ = eglGetPlatformDisplayEXT(EGL_PLATFORM_GBM_MESA, gbm_, NULL);
 
 	/* initialize the EGL display connection */
 	eglInitialize(display_, NULL, NULL);
@@ -319,7 +319,7 @@ int SimpleConverter::queueBuffers(FrameBuffer *input,
 int SimpleConverter::queueBufferGL(FrameBuffer *input, FrameBuffer *output)
 {
 	LOG(SimplePipeline, Debug) << "QUEUEBUFFERS GL CALLED";
-	DmabufImage rend_texIn = importDmabuf(input->planes()[0].fd.get(), outformat_.size, libcamera::formats::ARGB8888);
+	DmabufImage rend_texIn = importDmabuf(input->planes()[0].fd.get(), informat_.size, libcamera::formats::R8);
 	DmabufImage rend_texOut = importDmabuf(output->planes()[0].fd.get(), outformat_.size, libcamera::formats::ARGB8888);
 	//MappedFrameBuffer r(input, MappedFrameBuffer::MapFlag::Read);
 	//LOG(SimplePipeline, Debug)
@@ -364,8 +364,8 @@ void SimpleConverter::stop()
 	eglDestroyContext(display_, context_);
 	eglTerminate(display_);
 
-	gbm_bo_destroy(bo);
-	gbm_device_destroy(gbm);
+	gbm_bo_destroy(bo_);
+	gbm_device_destroy(gbm_);
 	close(device_);
 }
 

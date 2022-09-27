@@ -87,8 +87,8 @@ private:
 	EGLDisplay display_;
 	EGLContext context_;
 
-	struct gbm_device *gbm;
-	struct gbm_bo *bo;
+	struct gbm_device *gbm_;
+	struct gbm_bo *bo_;
 	unsigned int fbo_;
 
 	ConverterFormat informat_;

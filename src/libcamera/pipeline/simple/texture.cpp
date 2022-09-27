@@ -27,8 +27,8 @@ void Texture::initTexture(GLenum slot)
 	glTexParameteri(type_, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
 	/* Prevents edge bleeding */
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	glTexParameteri(type_, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(type_, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 }
 
 //void Texture::startTexture([[maybe_unused]] const MappedBuffer::Plane *image, [[maybe_unused]] GLenum format, [[maybe_unused]] GLenum pixelType, [[maybe_unused]] Size pixelSize)
