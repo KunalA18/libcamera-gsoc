@@ -15,13 +15,11 @@ namespace libcamera {
 
 LOG_DECLARE_CATEGORY(SimplePipeline)
 
-void Texture::initTexture(GLenum slot)
+//void Texture::startTexture([[maybe_unused]] const MappedBuffer::Plane *image, [[maybe_unused]] GLenum format, [[maybe_unused]] GLenum pixelType, [[maybe_unused]] Size pixelSize)
+void Texture::startTexture()
 {
-	/* Generates an OpenGL texture object and assigns the texture to a Texture Unit  */
-	//glGenTextures(1, &idTex_);
-	glActiveTexture(slot);
-	//glBindTexture(type_, idTex_);
-
+	/* Assigns the image to the OpenGL Texture object */
+	//glTexImage2D(type_, 0, GL_LUMINANCE, pixelSize.width, pixelSize.height, 0, format, pixelType, image->data());
 	/* Configures the type of algorithm that is used to make the image smaller or bigger */
 	glTexParameteri(type_, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	glTexParameteri(type_, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
@@ -29,13 +27,6 @@ void Texture::initTexture(GLenum slot)
 	/* Prevents edge bleeding */
 	glTexParameteri(type_, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 	glTexParameteri(type_, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-}
-
-//void Texture::startTexture([[maybe_unused]] const MappedBuffer::Plane *image, [[maybe_unused]] GLenum format, [[maybe_unused]] GLenum pixelType, [[maybe_unused]] Size pixelSize)
-void Texture::startTexture()
-{
-	/* Assigns the image to the OpenGL Texture object */
-	//glTexImage2D(type_, 0, GL_LUMINANCE, pixelSize.width, pixelSize.height, 0, format, pixelType, image->data());
 	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, idTex_, 0);
 }
 

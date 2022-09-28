@@ -139,7 +139,17 @@ std::pair<std::unique_ptr<FrameBuffer>, GlRenderTarget> SimpleConverter::createB
 SimpleConverter::DmabufImage SimpleConverter::importDmabuf(int fdesc, Size pixelSize, PixelFormat format)
 {
 	LOG(SimplePipeline, Debug) << "IMPORT DMABUF CALLED";
-	int bytes_per_pixel = 4;
+	int bytes_per_pixel = 0;
+	if (format == libcamera::formats::ARGB8888) {
+		bytes_per_pixel = 4;
+	}
+	if (format == libcamera::formats::R8) {
+		bytes_per_pixel = 1;
+	}
+	if (bytes_per_pixel == 0) {
+		LOG(SimplePipeline, Error) << "Bytes per pixel not modified ";
+	}
+
 	EGLint const attrs[] = {
 		EGL_WIDTH,
 		(int)pixelSize.width,
@@ -174,10 +184,7 @@ SimpleConverter::DmabufImage SimpleConverter::importDmabuf(int fdesc, Size pixel
 		.texture = texture,
 		.image = image,
 	};
-
-	glBindTexture(GL_TEXTURE_2D, texture);
-	auto glEGLImageTargetTexture2DOES = (PFNGLEGLIMAGETARGETTEXTURE2DOESPROC)eglGetProcAddress("glEGLImageTargetTexture2DOES");
-	glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, image);
+	glActiveTexture(GL_TEXTURE0);
 
 	return img;
 }
@@ -268,17 +275,6 @@ int SimpleConverter::start()
 	//shaderProgram_.callShader("default.vert", "default.frag");
 	framebufferProgram_.callShader("bayer_8.vert", "bayer_8.frag");
 
-	framebufferProgram_.activate();
-
-	glBindAttribLocation(framebufferProgram_.id(), 0, "vertexIn");
-	glBindAttribLocation(framebufferProgram_.id(), 2, "textureIn");
-	glUniform1i(glGetUniformLocation(framebufferProgram_.id(), "tex_y"), 0);
-	glUniform2f(glGetUniformLocation(framebufferProgram_.id(), "tex_step"), 1.0f / (informat_.planes[0].bpl_ - 1),
-		    1.0f / (informat_.size.height - 1));
-	glUniform2f(glGetUniformLocation(framebufferProgram_.id(), "tex_size"), informat_.size.width,
-		    informat_.size.height);
-	glUniform2f(glGetUniformLocation(framebufferProgram_.id(), "tex_bayer_first_red"), 0.0, 1.0);
-
 	/* Prepare framebuffer rectangle VBO and VAO */
 
 	glGenVertexArrays(1, &rectVAO);
@@ -291,6 +287,7 @@ int SimpleConverter::start()
 	glEnableVertexAttribArray(1);
 	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void *)(2 * sizeof(float)));
 
+	framebufferProgram_.activate();
 	/* create FrameBuffer object */
 
 	glGenFramebuffers(1, &fbo_);
@@ -319,13 +316,17 @@ int SimpleConverter::queueBuffers(FrameBuffer *input,
 int SimpleConverter::queueBufferGL(FrameBuffer *input, FrameBuffer *output)
 {
 	LOG(SimplePipeline, Debug) << "QUEUEBUFFERS GL CALLED";
+
 	DmabufImage rend_texIn = importDmabuf(input->planes()[0].fd.get(), informat_.size, libcamera::formats::R8);
+	glBindTexture(GL_TEXTURE_2D, rend_texIn.texture);
+	auto glEGLImageTargetTexture2DOES = (PFNGLEGLIMAGETARGETTEXTURE2DOESPROC)eglGetProcAddress("glEGLImageTargetTexture2DOES");
+	glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, rend_texIn.image);
+
 	DmabufImage rend_texOut = importDmabuf(output->planes()[0].fd.get(), outformat_.size, libcamera::formats::ARGB8888);
-	//MappedFrameBuffer r(input, MappedFrameBuffer::MapFlag::Read);
-	//LOG(SimplePipeline, Debug)
-	//	<< "CHECKING MAPPEDBUFFER" << r.planes().front();
+	glBindTexture(GL_TEXTURE_2D, rend_texOut.texture);
+	glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, rend_texOut.image);
+
 	Texture bayer(GL_TEXTURE_2D, rend_texOut.texture);
-	bayer.initTexture(GL_TEXTURE0);
 	//bayer.startTexture(r.planes().data(), GL_LUMINANCE, GL_UNSIGNED_BYTE, informat_.size);
 	bayer.startTexture();
 	bayer.unbind();
@@ -347,8 +348,16 @@ int SimpleConverter::queueBufferGL(FrameBuffer *input, FrameBuffer *output)
 	//glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	/* Draw the framebuffer rectangle */
 	framebufferProgram_.activate();
-	glBindVertexArray(rectVAO);
+	glBindAttribLocation(framebufferProgram_.id(), 0, "vertexIn");
+	glBindAttribLocation(framebufferProgram_.id(), 2, "textureIn");
+	glUniform1i(glGetUniformLocation(framebufferProgram_.id(), "tex_y"), 0);
+	glUniform2f(glGetUniformLocation(framebufferProgram_.id(), "tex_step"), 1.0f / (informat_.planes[0].bpl_ - 1),
+		    1.0f / (informat_.size.height - 1));
+	glUniform2f(glGetUniformLocation(framebufferProgram_.id(), "tex_size"), informat_.size.width,
+		    informat_.size.height);
+	glUniform2f(glGetUniformLocation(framebufferProgram_.id(), "tex_bayer_first_red"), 0.0, 1.0);
 	bayer.bind();
+	glBindVertexArray(rectVAO);
 	glDrawArrays(GL_TRIANGLES, 0, 6);
 
 	return 0;
