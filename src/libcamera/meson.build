@@ -137,14 +137,13 @@ libcamera_deps = [
     libcamera_base,
     libcamera_base_private,
     libdl,
+    libegl,
+    libgbm,
+    libgl,
     libgnutls,
     liblttng,
     libudev,
     libyaml,
-    libgbm,
-    libegl,
-    libgl,
-    libglew,
 ]
 
 # We add '/' to the build_rpath as a 'safe' path to act as a boolean flag.
