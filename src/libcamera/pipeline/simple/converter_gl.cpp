@@ -360,6 +360,9 @@ int SimpleConverter::queueBufferGL(FrameBuffer *input, FrameBuffer *output)
 	glBindVertexArray(rectVAO);
 	glDrawArrays(GL_TRIANGLES, 0, 6);
 
+	inputBufferReady.emit(input);
+	outputBufferReady.emit(output);
+
 	return 0;
 }
 
