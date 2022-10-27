@@ -28,7 +28,6 @@ public:
 	Texture(GLenum texType, GLuint rend_text)
 		: idTex_(rend_text), type_(texType){};
 
-	//void startTexture(const MappedBuffer::Plane *image, GLenum format, GLenum pixelType, Size pixelSize);
 	void startTexture();
 
 	void texUnit(ShaderProgram &shader, const char *uniform, GLuint unit);

@@ -15,11 +15,8 @@ namespace libcamera {
 
 LOG_DECLARE_CATEGORY(SimplePipeline)
 
-//void Texture::startTexture([[maybe_unused]] const MappedBuffer::Plane *image, [[maybe_unused]] GLenum format, [[maybe_unused]] GLenum pixelType, [[maybe_unused]] Size pixelSize)
 void Texture::startTexture()
 {
-	/* Assigns the image to the OpenGL Texture object */
-	//glTexImage2D(type_, 0, GL_LUMINANCE, pixelSize.width, pixelSize.height, 0, format, pixelType, image->data());
 	/* Configures the type of algorithm that is used to make the image smaller or bigger */
 	glTexParameteri(type_, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	glTexParameteri(type_, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
