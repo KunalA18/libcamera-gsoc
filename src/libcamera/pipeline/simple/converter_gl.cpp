@@ -355,7 +355,7 @@ int SimpleConverter::queueBufferGL(FrameBuffer *input, FrameBuffer *output)
 	bayer.bind();
 	glBindVertexArray(rectVAO);
 	glDrawArrays(GL_TRIANGLES, 0, 6);
-
+	glFinish();
 	/* Emit input and output bufferready signals */
 	inputBufferReady.emit(input);
 	outputBufferReady.emit(output);
