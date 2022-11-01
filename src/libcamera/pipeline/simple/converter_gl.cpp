@@ -267,6 +267,7 @@ int SimpleConverter::start()
 		LOG(SimplePipeline, Error) << "GL_ERROR: " << e;
 
 	framebufferProgram_.callShader("identity.vert", "fixed-color.frag");
+	framebufferProgram_.activate();
 
 	/* Prepare framebuffer rectangle VBO and VAO */
 	glGenVertexArrays(1, &rectVAO);
@@ -279,19 +280,16 @@ int SimpleConverter::start()
 	glEnableVertexAttribArray(1);
 	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void *)(2 * sizeof(float)));
 
-	/* build the shader program before setting the uniform values */
-	framebufferProgram_.activate();
-
 	/* set values for all uniforms */
 	glBindAttribLocation(framebufferProgram_.id(), 0, "vertexIn");
-	glBindAttribLocation(framebufferProgram_.id(), 2, "textureIn");
-	glUniform1i(glGetUniformLocation(framebufferProgram_.id(), "tex_y"), 0);
-	glUniform2f(glGetUniformLocation(framebufferProgram_.id(), "tex_step"), 1.0f / (informat_.planes[0].bpl_ - 1),
-		    1.0f / (informat_.size.height - 1));
-	glUniform2f(glGetUniformLocation(framebufferProgram_.id(), "tex_size"), informat_.size.width,
-		    informat_.size.height);
-	glUniform2f(glGetUniformLocation(framebufferProgram_.id(), "tex_bayer_first_red"), 0.0, 1.0);
-	glUniform1f(glGetUniformLocation(framebufferProgram_.id(), "stride_factor"), 1);
+	// glBindAttribLocation(framebufferProgram_.id(), 2, "textureIn");
+	// glUniform1i(glGetUniformLocation(framebufferProgram_.id(), "tex_y"), 0);
+	// glUniform2f(glGetUniformLocation(framebufferProgram_.id(), "tex_step"), 1.0f / (informat_.planes[0].bpl_ - 1),
+	// 	    1.0f / (informat_.size.height - 1));
+	// glUniform2f(glGetUniformLocation(framebufferProgram_.id(), "tex_size"), informat_.size.width,
+	// 	    informat_.size.height);
+	// glUniform2f(glGetUniformLocation(framebufferProgram_.id(), "tex_bayer_first_red"), 0.0, 1.0);
+	// glUniform1f(glGetUniformLocation(framebufferProgram_.id(), "stride_factor"), 1);
 
 	/* create FrameBuffer object */
 	glGenFramebuffers(1, &fbo_);
@@ -334,28 +332,24 @@ int SimpleConverter::queueBufferGL(FrameBuffer *input, FrameBuffer *output)
 
 	/* Texture constructor call: Assigns textureID and texture type to be used globally within texture class */
 	Texture bayer(GL_TEXTURE_2D, rend_texOut.texture);
+	/* Configures texture and binds GL_TEXTURE_2D to GL_FRAMEBUFFER */
 	bayer.startTexture();
-	bayer.unbind();
 
+	/* Specify the color of the background */
+	glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
+	glClear(GL_COLOR_BUFFER_BIT);
 	/* Error checking framebuffer */
-	GLenum fboStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-	if (fboStatus != GL_FRAMEBUFFER_COMPLETE)
-		LOG(SimplePipeline, Debug) << "Framebuffer error: " << fboStatus;
+	// GLenum fboStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+	// if (fboStatus != GL_FRAMEBUFFER_COMPLETE)
+	// 	LOG(SimplePipeline, Debug) << "Framebuffer error: " << fboStatus;
 
 	/* Main */
 
 	/* Bind the custom framebuffer */
 	glBindFramebuffer(GL_FRAMEBUFFER, fbo_);
-	/* Specify the color of the background */
-	glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
-	glClear(GL_COLOR_BUFFER_BIT);
-	/* Draw the framebuffer rectangle */
-	framebufferProgram_.activate();
-	/* bind the texture */
-	bayer.bind();
-	glBindVertexArray(rectVAO);
 	glDrawArrays(GL_TRIANGLES, 0, 6);
 	glFinish();
+
 	/* Emit input and output bufferready signals */
 	inputBufferReady.emit(input);
 	outputBufferReady.emit(output);
