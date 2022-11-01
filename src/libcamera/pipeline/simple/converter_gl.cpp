@@ -319,6 +319,9 @@ int SimpleConverter::queueBufferGL(FrameBuffer *input, FrameBuffer *output)
 {
 	LOG(SimplePipeline, Debug) << "QUEUEBUFFERS GL CALLED";
 
+	/* Specify the color of the background */
+	glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
+	glClear(GL_COLOR_BUFFER_BIT);
 	/* Generate texture from input buffer (with raw data) and bind it to GL_TEXTURE_2D */
 	DmabufImage rend_texIn = importDmabuf(input->planes()[0].fd.get(), informat_.size, libcamera::formats::R8);
 	glBindTexture(GL_TEXTURE_2D, rend_texIn.texture);
@@ -335,9 +338,6 @@ int SimpleConverter::queueBufferGL(FrameBuffer *input, FrameBuffer *output)
 	/* Configures texture and binds GL_TEXTURE_2D to GL_FRAMEBUFFER */
 	bayer.startTexture();
 
-	/* Specify the color of the background */
-	glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
-	glClear(GL_COLOR_BUFFER_BIT);
 	/* Error checking framebuffer */
 	// GLenum fboStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER);
 	// if (fboStatus != GL_FRAMEBUFFER_COMPLETE)
