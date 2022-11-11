@@ -9,6 +9,9 @@
 
 #include <gbm.h>
 #include <limits.h>
+#include <sys/ioctl.h>
+
+#include <linux/dma-buf.h>
 
 #include <libcamera/base/unique_fd.h>
 
@@ -21,6 +24,14 @@
 #include <GLES3/gl3ext.h>
 
 #include "texture.h"
+#define HANDLE_EINTR_AND_EAGAIN(x)                                             \
+	({                                                                     \
+		int result;                                                    \
+		do {                                                           \
+			result = (x);                                          \
+		} while (result != -1 && (errno == EINTR || errno == EAGAIN)); \
+		result;                                                        \
+	})
 
 namespace libcamera {
 
@@ -184,9 +195,6 @@ SimpleConverter::DmabufImage SimpleConverter::importDmabuf(int fdesc, Size pixel
 		.image = image,
 	};
 
-	/* specify the texture slot for binding */
-	glActiveTexture(GL_TEXTURE0);
-
 	return img;
 }
 
@@ -319,17 +327,28 @@ int SimpleConverter::queueBufferGL(FrameBuffer *input, FrameBuffer *output)
 {
 	LOG(SimplePipeline, Debug) << "QUEUEBUFFERS GL CALLED";
 
+	struct dma_buf_sync sync_start = { 0 };
+	sync_start.flags = DMA_BUF_SYNC_START | DMA_BUF_SYNC_RW;
+	int rv = HANDLE_EINTR_AND_EAGAIN(ioctl(output->planes()[0].fd.get(), DMA_BUF_IOCTL_SYNC, &sync_start));
+	if (rv != 0) {
+		LOG(SimplePipeline, Error) << "error with dma_buf start sync";
+	}
+
 	/* Specify the color of the background */
-	glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
+	glClearColor(0.0f, 1.0f, 0.0f, 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT);
 	/* Generate texture from input buffer (with raw data) and bind it to GL_TEXTURE_2D */
 	DmabufImage rend_texIn = importDmabuf(input->planes()[0].fd.get(), informat_.size, libcamera::formats::R8);
+	/* specify the texture slot for binding */
+	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, rend_texIn.texture);
 	auto glEGLImageTargetTexture2DOES = (PFNGLEGLIMAGETARGETTEXTURE2DOESPROC)eglGetProcAddress("glEGLImageTargetTexture2DOES");
 	glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, rend_texIn.image);
 
 	/* Generate texture from output buffer for rendering and bind it to GL_TEXTURE_2D */
 	DmabufImage rend_texOut = importDmabuf(output->planes()[0].fd.get(), outformat_.size, libcamera::formats::ARGB8888);
+	/* specify the texture slot for binding */
+	glActiveTexture(GL_TEXTURE1);
 	glBindTexture(GL_TEXTURE_2D, rend_texOut.texture);
 	glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, rend_texOut.image);
 
@@ -338,17 +357,21 @@ int SimpleConverter::queueBufferGL(FrameBuffer *input, FrameBuffer *output)
 	/* Configures texture and binds GL_TEXTURE_2D to GL_FRAMEBUFFER */
 	bayer.startTexture();
 
-	/* Error checking framebuffer */
-	// GLenum fboStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-	// if (fboStatus != GL_FRAMEBUFFER_COMPLETE)
-	// 	LOG(SimplePipeline, Debug) << "Framebuffer error: " << fboStatus;
-
-	/* Main */
-
 	/* Bind the custom framebuffer */
 	glBindFramebuffer(GL_FRAMEBUFFER, fbo_);
+	glBindVertexArray(rectVAO);
 	glDrawArrays(GL_TRIANGLES, 0, 6);
+	int e = glGetError();
+	if (e != GL_NO_ERROR)
+		LOG(SimplePipeline, Error) << "GL_ERROR: " << e;
 	glFinish();
+
+	struct dma_buf_sync sync_end = { 0 };
+	sync_end.flags = DMA_BUF_SYNC_END | DMA_BUF_SYNC_RW;
+	rv = HANDLE_EINTR_AND_EAGAIN(ioctl(output->planes()[0].fd.get(), DMA_BUF_IOCTL_SYNC, &sync_end));
+	if (rv != 0) {
+		LOG(SimplePipeline, Error) << "error with dma_buf end sync";
+	}
 
 	/* Emit input and output bufferready signals */
 	inputBufferReady.emit(input);
