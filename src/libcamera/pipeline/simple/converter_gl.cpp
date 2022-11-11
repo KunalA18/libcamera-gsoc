@@ -312,7 +312,18 @@ int SimpleConverter::queueBufferGL(FrameBuffer *input, FrameBuffer *output)
 	/* Bind the custom framebuffer */
 	glBindFramebuffer(GL_FRAMEBUFFER, fbo_);
 
-	glDrawArrays(GL_TRIANGLES, 0, 6);
+	/* creates triangle according to legacy GL */
+	glMatrixMode(GL_PROJECTION);
+	glOrtho(0, 400, 0, 500, -1, 1);
+
+	glBegin(GL_TRIANGLES);
+	glColor3f(1.0f, 0.0f, 0.0f);
+	glVertex2i(300, 210);
+	glColor3f(0.0f, 1.0f, 0.0f);
+	glVertex2i(340, 215);
+	glColor3f(0.0f, 0.0f, 1.0f);
+	glVertex2i(320, 250);
+	glEnd();
 
 	int e = glGetError();
 	if (e != GL_NO_ERROR)
