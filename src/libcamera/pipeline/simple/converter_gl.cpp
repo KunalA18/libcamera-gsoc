@@ -184,9 +184,6 @@ SimpleConverter::DmabufImage SimpleConverter::importDmabuf(int fdesc, Size pixel
 		.image = image,
 	};
 
-	/* specify the texture slot for binding */
-	glActiveTexture(GL_TEXTURE0);
-
 	return img;
 }
 
@@ -320,16 +317,20 @@ int SimpleConverter::queueBufferGL(FrameBuffer *input, FrameBuffer *output)
 	LOG(SimplePipeline, Debug) << "QUEUEBUFFERS GL CALLED";
 
 	/* Specify the color of the background */
-	glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
+	glClearColor(0.0f, 1.0f, 0.0f, 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT);
 	/* Generate texture from input buffer (with raw data) and bind it to GL_TEXTURE_2D */
 	DmabufImage rend_texIn = importDmabuf(input->planes()[0].fd.get(), informat_.size, libcamera::formats::R8);
+	/* specify the texture slot for binding */
+	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, rend_texIn.texture);
 	auto glEGLImageTargetTexture2DOES = (PFNGLEGLIMAGETARGETTEXTURE2DOESPROC)eglGetProcAddress("glEGLImageTargetTexture2DOES");
 	glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, rend_texIn.image);
 
 	/* Generate texture from output buffer for rendering and bind it to GL_TEXTURE_2D */
 	DmabufImage rend_texOut = importDmabuf(output->planes()[0].fd.get(), outformat_.size, libcamera::formats::ARGB8888);
+	/* specify the texture slot for binding */
+	glActiveTexture(GL_TEXTURE1);
 	glBindTexture(GL_TEXTURE_2D, rend_texOut.texture);
 	glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, rend_texOut.image);
 
@@ -347,7 +348,11 @@ int SimpleConverter::queueBufferGL(FrameBuffer *input, FrameBuffer *output)
 
 	/* Bind the custom framebuffer */
 	glBindFramebuffer(GL_FRAMEBUFFER, fbo_);
+	glBindVertexArray(rectVAO);
 	glDrawArrays(GL_TRIANGLES, 0, 6);
+	int e = glGetError();
+	if (e != GL_NO_ERROR)
+		LOG(SimplePipeline, Error) << "GL_ERROR: " << e;
 	glFinish();
 
 	/* Emit input and output bufferready signals */

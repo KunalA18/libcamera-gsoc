@@ -6,7 +6,7 @@
 precision mediump float;
 #endif
 
-varying vec2 textureOut;
+//varying vec2 textureOut;
 
 uniform sampler2D tex_y;
 
