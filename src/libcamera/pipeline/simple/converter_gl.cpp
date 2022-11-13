@@ -151,9 +151,9 @@ SimpleConverter::DmabufImage SimpleConverter::importDmabuf(int fdesc, Size pixel
 
 	EGLint const attrs[] = {
 		EGL_WIDTH,
-		(int)pixelSize.width + 50,
+		(int)pixelSize.width - 150,
 		EGL_HEIGHT,
-		(int)pixelSize.height + 50,
+		(int)pixelSize.height - 150,
 		EGL_LINUX_DRM_FOURCC_EXT,
 		(int)format.fourcc(),
 		EGL_DMA_BUF_PLANE0_FD_EXT,
