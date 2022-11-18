@@ -319,17 +319,18 @@ int SimpleConverter::queueBufferGL(FrameBuffer *input, FrameBuffer *output)
 	/* Specify the color of the background */
 	glClearColor(0.0f, 1.0f, 0.0f, 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT);
+
 	/* Generate texture from input buffer (with raw data) and bind it to GL_TEXTURE_2D */
+
 	DmabufImage rend_texIn = importDmabuf(input->planes()[0].fd.get(), informat_.size, libcamera::formats::R8);
-	/* specify the texture slot for binding */
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, rend_texIn.texture);
 	auto glEGLImageTargetTexture2DOES = (PFNGLEGLIMAGETARGETTEXTURE2DOESPROC)eglGetProcAddress("glEGLImageTargetTexture2DOES");
 	glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, rend_texIn.image);
 
 	/* Generate texture from output buffer for rendering and bind it to GL_TEXTURE_2D */
+
 	DmabufImage rend_texOut = importDmabuf(output->planes()[0].fd.get(), outformat_.size, libcamera::formats::ARGB8888);
-	/* specify the texture slot for binding */
 	glActiveTexture(GL_TEXTURE1);
 	glBindTexture(GL_TEXTURE_2D, rend_texOut.texture);
 	glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, rend_texOut.image);
@@ -339,15 +340,9 @@ int SimpleConverter::queueBufferGL(FrameBuffer *input, FrameBuffer *output)
 	/* Configures texture and binds GL_TEXTURE_2D to GL_FRAMEBUFFER */
 	bayer.startTexture();
 
-	/* Error checking framebuffer */
-	// GLenum fboStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-	// if (fboStatus != GL_FRAMEBUFFER_COMPLETE)
-	// 	LOG(SimplePipeline, Debug) << "Framebuffer error: " << fboStatus;
-
-	/* Main */
-
 	/* Bind the custom framebuffer */
 	glBindFramebuffer(GL_FRAMEBUFFER, fbo_);
+
 	glBindVertexArray(rectVAO);
 	glDrawArrays(GL_TRIANGLES, 0, 6);
 	int e = glGetError();
@@ -365,7 +360,9 @@ int SimpleConverter::queueBufferGL(FrameBuffer *input, FrameBuffer *output)
 void SimpleConverter::stop()
 {
 	LOG(SimplePipeline, Debug) << "STOP CALLED";
+	
 	/* Delete all the objects we've created */
+
 	framebufferProgram_.deleteProgram();
 	glDeleteFramebuffers(1, &fbo_);
 	eglDestroyContext(display_, context_);
