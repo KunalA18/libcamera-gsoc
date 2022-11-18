@@ -277,16 +277,9 @@ int SimpleConverter::start()
 	glEnableVertexAttribArray(1);
 	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void *)(2 * sizeof(float)));
 
-	/* set values for all uniforms */
+	/* set values for all attributes */
 	glBindAttribLocation(framebufferProgram_.id(), 0, "vertexIn");
 	// glBindAttribLocation(framebufferProgram_.id(), 2, "textureIn");
-	// glUniform1i(glGetUniformLocation(framebufferProgram_.id(), "tex_y"), 0);
-	// glUniform2f(glGetUniformLocation(framebufferProgram_.id(), "tex_step"), 1.0f / (informat_.planes[0].bpl_ - 1),
-	// 	    1.0f / (informat_.size.height - 1));
-	// glUniform2f(glGetUniformLocation(framebufferProgram_.id(), "tex_size"), informat_.size.width,
-	// 	    informat_.size.height);
-	// glUniform2f(glGetUniformLocation(framebufferProgram_.id(), "tex_bayer_first_red"), 0.0, 1.0);
-	// glUniform1f(glGetUniformLocation(framebufferProgram_.id(), "stride_factor"), 1);
 
 	/* create FrameBuffer object */
 	glGenFramebuffers(1, &fbo_);
@@ -320,12 +313,12 @@ int SimpleConverter::queueBufferGL(FrameBuffer *input, FrameBuffer *output)
 	glClearColor(0.0f, 1.0f, 0.0f, 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT);
 	/* Generate texture from input buffer (with raw data) and bind it to GL_TEXTURE_2D */
-	DmabufImage rend_texIn = importDmabuf(input->planes()[0].fd.get(), informat_.size, libcamera::formats::R8);
-	/* specify the texture slot for binding */
-	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, rend_texIn.texture);
+	// DmabufImage rend_texIn = importDmabuf(input->planes()[0].fd.get(), informat_.size, libcamera::formats::R8);
+	// /* specify the texture slot for binding */
+	// glActiveTexture(GL_TEXTURE0);
+	// glBindTexture(GL_TEXTURE_2D, rend_texIn.texture);
 	auto glEGLImageTargetTexture2DOES = (PFNGLEGLIMAGETARGETTEXTURE2DOESPROC)eglGetProcAddress("glEGLImageTargetTexture2DOES");
-	glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, rend_texIn.image);
+	// glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, rend_texIn.image);
 
 	/* Generate texture from output buffer for rendering and bind it to GL_TEXTURE_2D */
 	DmabufImage rend_texOut = importDmabuf(output->planes()[0].fd.get(), outformat_.size, libcamera::formats::ARGB8888);
@@ -338,11 +331,6 @@ int SimpleConverter::queueBufferGL(FrameBuffer *input, FrameBuffer *output)
 	Texture bayer(GL_TEXTURE_2D, rend_texOut.texture);
 	/* Configures texture and binds GL_TEXTURE_2D to GL_FRAMEBUFFER */
 	bayer.startTexture();
-
-	/* Error checking framebuffer */
-	// GLenum fboStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-	// if (fboStatus != GL_FRAMEBUFFER_COMPLETE)
-	// 	LOG(SimplePipeline, Debug) << "Framebuffer error: " << fboStatus;
 
 	/* Main */
 
