@@ -63,7 +63,12 @@ public:
 
 	const std::vector<Plane> &planes() const;
 	Request *request() const;
+<<<<<<< HEAD
+	const FrameMetadata &metadata() const { return metadata_; }
+	FrameMetadata &metadata_mut() { return metadata_; }
+=======
 	const FrameMetadata &metadata() const;
+>>>>>>> ea8ae5afff226f9373c82c1a3185e532d5d6eda0
 
 	uint64_t cookie() const;
 	void setCookie(uint64_t cookie);

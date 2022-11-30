@@ -14,10 +14,10 @@
 #include <tuple>
 #include <vector>
 
-#include <libcamera/pixel_format.h>
-
 #include <libcamera/base/log.h>
 #include <libcamera/base/signal.h>
+
+#include <libcamera/pixel_format.h>
 
 namespace libcamera {
 

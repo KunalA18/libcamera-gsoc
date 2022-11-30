@@ -11,10 +11,9 @@
 #include <list>
 #include <map>
 #include <memory>
-#include <queue>
 #include <set>
-#include <string>
 #include <string.h>
+#include <string>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -36,7 +35,9 @@
 #include "libcamera/internal/v4l2_subdevice.h"
 #include "libcamera/internal/v4l2_videodevice.h"
 
-#include "converter.h"
+#include <queue>
+
+#include "converter_gl.h"
 
 namespace libcamera {
 
@@ -194,6 +195,7 @@ static const SimplePipelineInfo supportedDevices[] = {
 	{ "mxc-isi", {} },
 	{ "qcom-camss", {} },
 	{ "sun6i-csi", {} },
+	{ "unicam", {} },
 };
 
 } /* namespace */
@@ -490,17 +492,15 @@ int SimpleCameraData::init()
 	int ret;
 
 	/* Open the converter, if any. */
-	MediaDevice *converter = pipe->converter();
-	if (converter) {
-		converter_ = std::make_unique<SimpleConverter>(converter);
-		if (!converter_->isValid()) {
-			LOG(SimplePipeline, Warning)
-				<< "Failed to create converter, disabling format conversion";
-			converter_.reset();
-		} else {
-			converter_->inputBufferReady.connect(this, &SimpleCameraData::converterInputDone);
-			converter_->outputBufferReady.connect(this, &SimpleCameraData::converterOutputDone);
-		}
+
+	converter_ = std::make_unique<SimpleConverter>();
+	if (!converter_->isValid()) {
+		LOG(SimplePipeline, Warning)
+			<< "Failed to create converter, disabling format conversion";
+		converter_.reset();
+	} else {
+		converter_->inputBufferReady.connect(this, &SimpleCameraData::converterInputDone);
+		converter_->outputBufferReady.connect(this, &SimpleCameraData::converterOutputDone);
 	}
 
 	video_ = pipe->video(entities_.back().entity);
@@ -1116,6 +1116,9 @@ int SimplePipelineHandler::configure(Camera *camera, CameraConfiguration *c)
 	format.mbus_code = pipeConfig->code;
 	format.size = pipeConfig->sensorSize;
 
+	LOG(SimplePipeline, Debug)
+		<< "TESTING CONFIG" << pipeConfig->captureFormat;
+
 	ret = data->setupFormats(&format, V4L2Subdevice::ActiveFormat);
 	if (ret < 0)
 		return ret;
@@ -1163,7 +1166,7 @@ int SimplePipelineHandler::configure(Camera *camera, CameraConfiguration *c)
 		return 0;
 
 	StreamConfiguration inputCfg;
-	inputCfg.pixelFormat = pipeConfig->captureFormat;
+	inputCfg.pixelFormat = pipeConfig->captureFormat; //SGBRG10
 	inputCfg.size = pipeConfig->captureSize;
 	inputCfg.stride = captureFormat.planes[0].bpl;
 	inputCfg.bufferCount = kNumInternalBuffers;
@@ -1405,7 +1408,7 @@ bool SimplePipelineHandler::match(DeviceEnumerator *enumerator)
 		DeviceMatch converterMatch(name);
 		converter_ = acquireMediaDevice(enumerator, converterMatch);
 		if (converter_) {
-			numStreams = streams;
+			numStreams = 1;
 			break;
 		}
 	}

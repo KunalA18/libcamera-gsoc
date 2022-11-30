@@ -7,16 +7,24 @@
 
 #include "viewfinder_gl.h"
 
+<<<<<<< HEAD:src/qcam/viewfinder_gl.cpp
+#include <libcamera/formats.h>
+=======
 #include <array>
+>>>>>>> ea8ae5afff226f9373c82c1a3185e532d5d6eda0:src/apps/qcam/viewfinder_gl.cpp
 
 #include <QByteArray>
 #include <QFile>
 #include <QImage>
 #include <QStringList>
 
+<<<<<<< HEAD:src/qcam/viewfinder_gl.cpp
+#include "../cam/image.h"
+=======
 #include <libcamera/formats.h>
 
 #include "../common/image.h"
+>>>>>>> ea8ae5afff226f9373c82c1a3185e532d5d6eda0:src/apps/qcam/viewfinder_gl.cpp
 
 static const QList<libcamera::PixelFormat> supportedFormats{
 	/* YUV - packed (single plane) */
@@ -804,7 +812,7 @@ void ViewFinderGL::doRender()
 	 */
 	shaderProgram_.setUniformValue(textureUniformStrideFactor_,
 				       static_cast<float>(size_.width() - 1) /
-				       (stridePixels - 1));
+					       (stridePixels - 1));
 }
 
 void ViewFinderGL::paintGL()

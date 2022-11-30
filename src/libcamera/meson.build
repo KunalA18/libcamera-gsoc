@@ -74,9 +74,14 @@ endif
 libudev = dependency('libudev', required : false)
 libyaml = dependency('yaml-0.1', required : false)
 
+<<<<<<< HEAD
+
+if libgnutls.found()
+=======
 # Use one of gnutls or libcrypto (provided by OpenSSL), trying gnutls first.
 libcrypto = dependency('gnutls', required : false)
 if libcrypto.found()
+>>>>>>> ea8ae5afff226f9373c82c1a3185e532d5d6eda0
     config_h.set('HAVE_GNUTLS', 1)
 else
     libcrypto = dependency('libcrypto', required : false)
@@ -153,6 +158,13 @@ libcamera_deps = [
     libcamera_base_private,
     libcrypto,
     libdl,
+<<<<<<< HEAD
+    libegl,
+    libgbm,
+    libgl,
+    libgnutls,
+=======
+>>>>>>> ea8ae5afff226f9373c82c1a3185e532d5d6eda0
     liblttng,
     libudev,
     libyaml,
