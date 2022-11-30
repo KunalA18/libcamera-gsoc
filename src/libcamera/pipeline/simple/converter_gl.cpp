@@ -20,6 +20,7 @@
 #include <GLES3/gl3.h>
 #include <GLES3/gl3ext.h>
 
+#include "result.h"
 #include "texture.h"
 
 namespace libcamera {
@@ -36,6 +37,42 @@ float rectangleVertices[] = {
 	1.0f, -1.0f, 1.0f, 0.0f,
 	-1.0f, 1.0f, 0.0f, 1.0f
 };
+
+std::string eglStrError(EGLint error)
+{
+	printf("Error: %d\n", error);
+
+	switch (error) {
+	case EGL_SUCCESS:
+		return "EGL_SUCCESS";
+	case EGL_BAD_ALLOC:
+		return "EGL_BAD_ALLOC";
+	case EGL_BAD_CONFIG:
+		return "EGL_BAD_CONFIG";
+	case EGL_BAD_PARAMETER:
+		return "EGL_BAD_PARAMETER";
+	case EGL_BAD_MATCH:
+		return "EGL_BAD_MATCH";
+	case EGL_BAD_ATTRIBUTE:
+		return "EGL_BAD_ATTRIBUTE";
+	case EGL_BAD_CONTEXT:
+		return "EGL_BAD_CONTEXT";
+	case EGL_BAD_CURRENT_SURFACE:
+		return "EGL_BAD_CURRENT_SURFACE";
+	case EGL_BAD_DISPLAY:
+		return "EGL_BAD_DISPLAY";
+	case EGL_BAD_SURFACE:
+		return "EGL_BAD_SURFACE";
+	case EGL_BAD_NATIVE_PIXMAP:
+		return "EGL_BAD_NATIVE_PIXMAP";
+	case EGL_BAD_NATIVE_WINDOW:
+		return "EGL_BAD_NATIVE_WINDOW";
+	case EGL_CONTEXT_LOST:
+		return "EGL_CONTEXT_LOST";
+	default:
+		return "UNKNOWN";
+	}
+}
 
 int SimpleConverter::configure(const StreamConfiguration &inputCfg,
 			       const std::vector<std::reference_wrapper<StreamConfiguration>> &outputCfgs)
@@ -112,7 +149,7 @@ std::pair<std::unique_ptr<FrameBuffer>, GlRenderTarget> SimpleConverter::createB
 {
 	LOG(SimplePipeline, Debug) << "CREATE BUFFERS CALLED";
 	bo_ = gbm_bo_create(gbm_, outformat_.size.width, outformat_.size.height,
-			    GBM_BO_FORMAT_ARGB8888, GBM_BO_USE_RENDERING);
+			    GBM_BO_FORMAT_ARGB8888, GBM_BO_USE_LINEAR | GBM_BO_USE_RENDERING);
 	if (!bo_)
 		LOG(SimplePipeline, Error) << "GBM buffer not created ";
 
@@ -172,6 +209,10 @@ SimpleConverter::DmabufImage SimpleConverter::importDmabuf(int fdesc, Size pixel
 		NULL,
 		attrs);
 
+	if (image == EGL_NO_IMAGE_KHR) {
+		LOG(SimplePipeline, Error) << "XXXXXXXXXXXXXXXXXXXXXXXX";
+	}
+
 	int e = glGetError();
 
 	if (e != GL_NO_ERROR)
@@ -183,6 +224,9 @@ SimpleConverter::DmabufImage SimpleConverter::importDmabuf(int fdesc, Size pixel
 		.texture = texture,
 		.image = image,
 	};
+	glBindTexture(GL_TEXTURE_2D, texture);
+	auto glEGLImageTargetTexture2DOES = (PFNGLEGLIMAGETARGETTEXTURE2DOESPROC)eglGetProcAddress("glEGLImageTargetTexture2DOES");
+	glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, image);
 
 	return img;
 }
@@ -216,11 +260,11 @@ int SimpleConverter::start()
 	auto c = eglChooseConfig(display_, attribute_list_config, configs, 32, &num_config);
 	if (c != EGL_TRUE) {
 		EGLint err = eglGetError();
-		LOG(SimplePipeline, Error) << "<<< config failed: " << err;
+		LOG(SimplePipeline, Error) << "<<< config failed: " << err << "\t" << eglStrError(err);
 		return -1;
 	}
 	if (num_config == 0) {
-		LOG(SimplePipeline, Error) << "<<< found no configs " << std::endl;
+		LOG(SimplePipeline, Error) << "<<< found no configs ";
 		return -1;
 	}
 
@@ -316,10 +360,6 @@ int SimpleConverter::queueBufferGL(FrameBuffer *input, FrameBuffer *output)
 {
 	LOG(SimplePipeline, Debug) << "QUEUEBUFFERS GL CALLED";
 
-	/* Specify the color of the background */
-	glClearColor(0.0f, 1.0f, 0.0f, 1.0f);
-	glClear(GL_COLOR_BUFFER_BIT);
-
 	/* Generate texture from input buffer (with raw data) and bind it to GL_TEXTURE_2D */
 
 	DmabufImage rend_texIn = importDmabuf(input->planes()[0].fd.get(), informat_.size, libcamera::formats::R8);
@@ -335,10 +375,14 @@ int SimpleConverter::queueBufferGL(FrameBuffer *input, FrameBuffer *output)
 	glBindTexture(GL_TEXTURE_2D, rend_texOut.texture);
 	glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, rend_texOut.image);
 
-	/* Texture constructor call: Assigns textureID and texture type to be used globally within texture class */
-	Texture bayer(GL_TEXTURE_2D, rend_texOut.texture);
-	/* Configures texture and binds GL_TEXTURE_2D to GL_FRAMEBUFFER */
-	bayer.startTexture();
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+	/* Prevents edge bleeding */
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, rend_texOut.texture, 0);
 
 	/* Bind the custom framebuffer */
 	glBindFramebuffer(GL_FRAMEBUFFER, fbo_);
@@ -354,13 +398,17 @@ int SimpleConverter::queueBufferGL(FrameBuffer *input, FrameBuffer *output)
 	inputBufferReady.emit(input);
 	outputBufferReady.emit(output);
 
+	/* Specify the color of the background */
+	glClearColor(0.0f, 1.0f, 0.0f, 1.0f);
+	glClear(GL_COLOR_BUFFER_BIT);
+
 	return 0;
 }
 
 void SimpleConverter::stop()
 {
 	LOG(SimplePipeline, Debug) << "STOP CALLED";
-	
+
 	/* Delete all the objects we've created */
 
 	framebufferProgram_.deleteProgram();
