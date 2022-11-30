@@ -58,20 +58,40 @@ includes = [
 ]
 
 libatomic = cc.find_library('atomic', required : false)
+libthreads = dependency('threads')
 
 subdir('base')
 subdir('ipa')
 subdir('pipeline')
 subdir('proxy')
 
-libdl = cc.find_library('dl')
-libgnutls = cc.find_library('gnutls', required : true)
+null_dep = dependency('', required : false)
+
+libdl = null_dep
+if not cc.has_function('dlopen')
+    libdl = cc.find_library('dl')
+endif
 libudev = dependency('libudev', required : false)
 libyaml = dependency('yaml-0.1', required : false)
 
+<<<<<<< HEAD
 
 if libgnutls.found()
+=======
+# Use one of gnutls or libcrypto (provided by OpenSSL), trying gnutls first.
+libcrypto = dependency('gnutls', required : false)
+if libcrypto.found()
+>>>>>>> ea8ae5afff226f9373c82c1a3185e532d5d6eda0
     config_h.set('HAVE_GNUTLS', 1)
+else
+    libcrypto = dependency('libcrypto', required : false)
+    if libcrypto.found()
+        config_h.set('HAVE_CRYPTO', 1)
+    endif
+endif
+
+if not libcrypto.found()
+    warning('Neither gnutls nor libcrypto found, all IPA modules will be isolated')
 endif
 
 if liblttng.found()
@@ -136,11 +156,15 @@ libcamera_deps = [
     libatomic,
     libcamera_base,
     libcamera_base_private,
+    libcrypto,
     libdl,
+<<<<<<< HEAD
     libegl,
     libgbm,
     libgl,
     libgnutls,
+=======
+>>>>>>> ea8ae5afff226f9373c82c1a3185e532d5d6eda0
     liblttng,
     libudev,
     libyaml,
@@ -154,6 +178,7 @@ libcamera_deps = [
 libcamera = shared_library('libcamera',
                            libcamera_sources,
                            version : libcamera_version,
+                           soversion : libcamera_soversion,
                            name_prefix : '',
                            install : true,
                            include_directories : includes,
@@ -182,5 +207,7 @@ pkg_mod.generate(libcamera,
                  libraries : libcamera_base_lib,
                  description : 'Complex Camera Support Library',
                  subdirs : 'libcamera')
+
+meson.override_dependency('libcamera', libcamera_public)
 
 subdir('proxy/worker')

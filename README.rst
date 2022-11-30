@@ -60,8 +60,11 @@ Meson Build system: [required]
 for the libcamera core: [required]
         libyaml-dev python3-yaml python3-ply python3-jinja2
 
-for IPA module signing: [required]
-        libgnutls28-dev openssl
+for IPA module signing: [recommended]
+        Either libgnutls28-dev or libssl-dev, openssl
+
+        Without IPA module signing, all IPA modules will be isolated in a
+        separate process. This adds an unnecessary extra overhead at runtime.
 
 for improved debugging: [optional]
         libdw-dev libunwind-dev
@@ -70,12 +73,6 @@ for improved debugging: [optional]
         failures. Their functions overlap, libdw provides the most detailed
         information, and libunwind is not needed if both libdw and the glibc
         backtrace() function are available.
-
-for the Raspberry Pi IPA: [optional]
-        libboost-dev
-
-        Support for Raspberry Pi can be disabled through the meson
-         'pipelines' option to avoid this dependency.
 
 for device hotplug enumeration: [optional]
         libudev-dev
@@ -92,8 +89,8 @@ for cam: [optional]
         tool:
 
         - libdrm-dev: Enables the KMS sink
+        - libjpeg-dev: Enables MJPEG on the SDL sink
         - libsdl2-dev: Enables the SDL sink
-        - libsdl2-image-dev: Supports MJPEG on the SDL sink
 
 for qcam: [optional]
         qtbase5-dev libqt5core5a libqt5gui5 libqt5widgets5 qttools5-dev-tools libtiff-dev

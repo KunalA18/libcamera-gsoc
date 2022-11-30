@@ -67,10 +67,29 @@ namespace ipa {
  */
 
 /**
+ * \fn Algorithm::queueRequest()
+ * \brief Provide control values to the algorithm
+ * \param[in] context The shared IPA context
+ * \param[in] frame The frame number to apply the control values
+ * \param[in] frameContext The current frame's context
+ * \param[in] controls The list of user controls
+ *
+ * This function is called for each request queued to the camera. It provides
+ * the controls stored in the request to the algorithm. The \a frame number
+ * is the Request sequence number and identifies the desired corresponding
+ * frame to target for the controls to take effect.
+ *
+ * Algorithms shall read the applicable controls and store their value for later
+ * use during frame processing.
+ */
+
+/**
  * \fn Algorithm::prepare()
  * \brief Fill the \a params buffer with ISP processing parameters for a frame
  * \param[in] context The shared IPA context
- * \param[out] params The ISP specific parameters.
+ * \param[in] frame The frame context sequence number
+ * \param[in] frameContext The FrameContext for this frame
+ * \param[out] params The ISP specific parameters
  *
  * This function is called for every frame when the camera is running before it
  * is processed by the ISP to prepare the ISP processing parameters for that
@@ -85,13 +104,15 @@ namespace ipa {
  * \fn Algorithm::process()
  * \brief Process ISP statistics, and run algorithm operations
  * \param[in] context The shared IPA context
+ * \param[in] frame The frame context sequence number
  * \param[in] frameContext The current frame's context
  * \param[in] stats The IPA statistics and ISP results
+ * \param[out] metadata Metadata for the frame, to be filled by the algorithm
  *
  * This function is called while camera is running for every frame processed by
  * the ISP, to process statistics generated from that frame by the ISP.
- * Algorithms shall use this data to run calculations and update their state
- * accordingly.
+ * Algorithms shall use this data to run calculations, update their state
+ * accordingly, and fill the frame metadata.
  *
  * Processing shall not take an undue amount of time, and any extended or
  * computationally expensive calculations or operations must be handled

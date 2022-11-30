@@ -5,10 +5,12 @@
  * Python bindings
  */
 
-#include <mutex>
+#include "py_main.h"
+
+#include <memory>
 #include <stdexcept>
-#include <sys/eventfd.h>
-#include <unistd.h>
+#include <string>
+#include <vector>
 
 #include <libcamera/base/log.h>
 
@@ -19,112 +21,24 @@
 #include <pybind11/stl.h>
 #include <pybind11/stl_bind.h>
 
+#include "py_camera_manager.h"
+#include "py_helpers.h"
+
 namespace py = pybind11;
 
 using namespace libcamera;
 
-template<typename T>
-static py::object valueOrTuple(const ControlValue &cv)
-{
-	if (cv.isArray()) {
-		const T *v = reinterpret_cast<const T *>(cv.data().data());
-		auto t = py::tuple(cv.numElements());
+namespace libcamera {
 
-		for (size_t i = 0; i < cv.numElements(); ++i)
-			t[i] = v[i];
+LOG_DEFINE_CATEGORY(Python)
 
-		return std::move(t);
-	}
-
-	return py::cast(cv.get<T>());
 }
 
-static py::object controlValueToPy(const ControlValue &cv)
-{
-	switch (cv.type()) {
-	case ControlTypeBool:
-		return valueOrTuple<bool>(cv);
-	case ControlTypeByte:
-		return valueOrTuple<uint8_t>(cv);
-	case ControlTypeInteger32:
-		return valueOrTuple<int32_t>(cv);
-	case ControlTypeInteger64:
-		return valueOrTuple<int64_t>(cv);
-	case ControlTypeFloat:
-		return valueOrTuple<float>(cv);
-	case ControlTypeString:
-		return py::cast(cv.get<std::string>());
-	case ControlTypeRectangle: {
-		const Rectangle *v = reinterpret_cast<const Rectangle *>(cv.data().data());
-		return py::cast(v);
-	}
-	case ControlTypeSize: {
-		const Size *v = reinterpret_cast<const Size *>(cv.data().data());
-		return py::cast(v);
-	}
-	case ControlTypeNone:
-	default:
-		throw std::runtime_error("Unsupported ControlValue type");
-	}
-}
-
-template<typename T>
-static ControlValue controlValueMaybeArray(const py::object &ob)
-{
-	if (py::isinstance<py::list>(ob) || py::isinstance<py::tuple>(ob)) {
-		std::vector<T> vec = ob.cast<std::vector<T>>();
-		return ControlValue(Span<const T>(vec));
-	}
-
-	return ControlValue(ob.cast<T>());
-}
-
-static ControlValue pyToControlValue(const py::object &ob, ControlType type)
-{
-	switch (type) {
-	case ControlTypeBool:
-		return ControlValue(ob.cast<bool>());
-	case ControlTypeByte:
-		return controlValueMaybeArray<uint8_t>(ob);
-	case ControlTypeInteger32:
-		return controlValueMaybeArray<int32_t>(ob);
-	case ControlTypeInteger64:
-		return controlValueMaybeArray<int64_t>(ob);
-	case ControlTypeFloat:
-		return controlValueMaybeArray<float>(ob);
-	case ControlTypeString:
-		return ControlValue(ob.cast<std::string>());
-	case ControlTypeRectangle:
-		return ControlValue(ob.cast<Rectangle>());
-	case ControlTypeSize:
-		return ControlValue(ob.cast<Size>());
-	case ControlTypeNone:
-	default:
-		throw std::runtime_error("Control type not implemented");
-	}
-}
-
-static std::weak_ptr<CameraManager> gCameraManager;
-static int gEventfd;
-static std::mutex gReqlistMutex;
-static std::vector<Request *> gReqList;
-
-static void handleRequestCompleted(Request *req)
-{
-	{
-		std::lock_guard guard(gReqlistMutex);
-		gReqList.push_back(req);
-	}
-
-	uint64_t v = 1;
-	size_t s = write(gEventfd, &v, 8);
-	/*
-	 * We should never fail, and have no simple means to manage the error,
-	 * so let's use LOG(Fatal).
-	 */
-	if (s != 8)
-		LOG(Fatal) << "Unable to write to eventfd";
-}
+/*
+ * Note: global C++ destructors can be ran on this before the py module is
+ * destructed.
+ */
+static std::weak_ptr<PyCameraManager> gCameraManager;
 
 void init_py_enums(py::module &m);
 void init_py_controls_generated(py::module &m);
@@ -147,7 +61,7 @@ PYBIND11_MODULE(_libcamera, m)
 	 * https://pybind11.readthedocs.io/en/latest/advanced/misc.html#avoiding-c-types-in-docstrings
 	 */
 
-	auto pyCameraManager = py::class_<CameraManager>(m, "CameraManager");
+	auto pyCameraManager = py::class_<PyCameraManager>(m, "CameraManager");
 	auto pyCamera = py::class_<Camera>(m, "Camera");
 	auto pyCameraConfiguration = py::class_<CameraConfiguration>(m, "CameraConfiguration");
 	auto pyCameraConfigurationStatus = py::enum_<CameraConfiguration::Status>(pyCameraConfiguration, "Status");
@@ -181,78 +95,22 @@ PYBIND11_MODULE(_libcamera, m)
 	/* Classes */
 	pyCameraManager
 		.def_static("singleton", []() {
-			std::shared_ptr<CameraManager> cm = gCameraManager.lock();
-			if (cm)
-				return cm;
+			std::shared_ptr<PyCameraManager> cm = gCameraManager.lock();
 
-			int fd = eventfd(0, 0);
-			if (fd == -1)
-				throw std::system_error(errno, std::generic_category(),
-							"Failed to create eventfd");
-
-			cm = std::shared_ptr<CameraManager>(new CameraManager, [](auto p) {
-				close(gEventfd);
-				gEventfd = -1;
-				delete p;
-			});
-
-			gEventfd = fd;
-			gCameraManager = cm;
-
-			int ret = cm->start();
-			if (ret)
-				throw std::system_error(-ret, std::generic_category(),
-							"Failed to start CameraManager");
+			if (!cm) {
+				cm = std::make_shared<PyCameraManager>();
+				gCameraManager = cm;
+			}
 
 			return cm;
 		})
 
-		.def_property_readonly("version", &CameraManager::version)
+		.def_property_readonly("version", &PyCameraManager::version)
+		.def("get", &PyCameraManager::get, py::keep_alive<0, 1>())
+		.def_property_readonly("cameras", &PyCameraManager::cameras)
 
-		.def_property_readonly("event_fd", [](CameraManager &) {
-			return gEventfd;
-		})
-
-		.def("get_ready_requests", [](CameraManager &) {
-			uint8_t buf[8];
-
-			if (read(gEventfd, buf, 8) != 8)
-				throw std::system_error(errno, std::generic_category());
-
-			std::vector<Request *> v;
-
-			{
-				std::lock_guard guard(gReqlistMutex);
-				swap(v, gReqList);
-			}
-
-			std::vector<py::object> ret;
-
-			for (Request *req : v) {
-				py::object o = py::cast(req);
-				/* Decrease the ref increased in Camera.queue_request() */
-				o.dec_ref();
-				ret.push_back(o);
-			}
-
-			return ret;
-		})
-
-		.def("get", py::overload_cast<const std::string &>(&CameraManager::get), py::keep_alive<0, 1>())
-
-		/* Create a list of Cameras, where each camera has a keep-alive to CameraManager */
-		.def_property_readonly("cameras", [](CameraManager &self) {
-			py::list l;
-
-			for (auto &c : self.cameras()) {
-				py::object py_cm = py::cast(self);
-				py::object py_cam = py::cast(c);
-				py::detail::keep_alive_impl(py_cam, py_cm);
-				l.append(py_cam);
-			}
-
-			return l;
-		});
+		.def_property_readonly("event_fd", &PyCameraManager::eventFd)
+		.def("get_ready_requests", &PyCameraManager::getReadyRequests);
 
 	pyCamera
 		.def_property_readonly("id", &Camera::id)
@@ -262,7 +120,10 @@ PYBIND11_MODULE(_libcamera, m)
 		                 const std::unordered_map<const ControlId *, py::object> &controls) {
 			/* \todo What happens if someone calls start() multiple times? */
 
-			self.requestCompleted.connect(handleRequestCompleted);
+			auto cm = gCameraManager.lock();
+			ASSERT(cm);
+
+			self.requestCompleted.connect(cm.get(), &PyCameraManager::handleRequestCompleted);
 
 			ControlList controlList(self.controls());
 
@@ -273,7 +134,7 @@ PYBIND11_MODULE(_libcamera, m)
 
 			int ret = self.start(&controlList);
 			if (ret) {
-				self.requestCompleted.disconnect(handleRequestCompleted);
+				self.requestCompleted.disconnect();
 				return ret;
 			}
 
@@ -285,7 +146,7 @@ PYBIND11_MODULE(_libcamera, m)
 			if (ret)
 				return ret;
 
-			self.requestCompleted.disconnect(handleRequestCompleted);
+			self.requestCompleted.disconnect();
 
 			return 0;
 		})
@@ -602,8 +463,8 @@ PYBIND11_MODULE(_libcamera, m)
 		.def_readwrite("ycbcrEncoding", &ColorSpace::ycbcrEncoding)
 		.def_readwrite("range", &ColorSpace::range)
 		.def_static("Raw", []() { return ColorSpace::Raw; })
-		.def_static("Jpeg", []() { return ColorSpace::Jpeg; })
 		.def_static("Srgb", []() { return ColorSpace::Srgb; })
+		.def_static("Sycc", []() { return ColorSpace::Sycc; })
 		.def_static("Smpte170m", []() { return ColorSpace::Smpte170m; })
 		.def_static("Rec709", []() { return ColorSpace::Rec709; })
 		.def_static("Rec2020", []() { return ColorSpace::Rec2020; });

@@ -2,7 +2,7 @@
 
 project('libcamera', 'c', 'cpp',
     meson_version : '>= 0.56',
-    version : '0.0.0',
+    version : '0.0.2',
     default_options : [
         'werror=true',
         'warning_level=2',
@@ -26,7 +26,41 @@ endif
 
 libcamera_version = libcamera_git_version.split('+')[0]
 
-# This script gererates the .tarball-version file on a 'meson dist' command.
+# A shallow clone, or a clone without a reachable tag equivalent to the
+# meson.project_version() could leave the project in a mis-described state.
+# Produce a warning in this event, and fix to a best effort.
+if libcamera_version != meson.project_version()
+    warning('The sources disagree about the version: '
+            + libcamera_version + ' != ' + meson.project_version())
+
+    summary({'libcamera git version' : libcamera_git_version,
+             'Source version match' : false,
+            },
+            bool_yn : true, section : 'Versions')
+
+    # Replace the version components reported by git with the release version,
+    # but keep all trailing information supplied by git.
+    libcamera_git_version = (meson.project_version() +
+                             libcamera_git_version.strip(libcamera_version))
+    libcamera_version = meson.project_version()
+
+    # Append a marker to show we have modified this version string
+    libcamera_git_version += '-nvm'
+endif
+
+# Until we make ABI compatible releases, the full libcamera version is used as
+# the soname. No ABI/API compatibility is guaranteed between releases (x.y.z).
+#
+# When automatic ABI based detection is used to increment the version, this
+# will bump the minor number (x.y).
+#
+# When we declare a stable ABI/API we will provide a 1.0 release and the
+# soversion at that point will be the 'major' release value (x).
+libcamera_soversion = libcamera_version
+
+summary({ 'Sources': libcamera_git_version, }, section : 'Versions')
+
+# This script generates the .tarball-version file on a 'meson dist' command.
 meson.add_dist_script('utils/run-dist.sh')
 
 # Configure the build environment.
@@ -44,7 +78,7 @@ endif
 
 common_arguments = [
     '-Wshadow',
-    '-include', 'config.h',
+    '-include', meson.current_build_dir() / 'config.h',
 ]
 
 c_arguments = []
@@ -122,7 +156,7 @@ libcamera_includes = include_directories('include')
 py_modules = []
 
 # Libraries used by multiple components
-liblttng = cc.find_library('lttng-ust', required : get_option('tracing'))
+liblttng = dependency('lttng-ust', required : get_option('tracing'))
 
 # Pipeline handlers
 #
@@ -173,7 +207,7 @@ py_mod.find_installation('python3', modules: py_modules)
 ## Summarise Configurations
 summary({
             'Enabled pipelines': pipelines,
-            'Enabled IPA modules': ipa_modules,
+            'Enabled IPA modules': enabled_ipa_modules,
             'Tracing support': tracing_enabled,
             'Android support': android_enabled,
             'GStreamer support': gst_enabled,

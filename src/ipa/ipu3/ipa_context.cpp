@@ -36,22 +36,6 @@ namespace libcamera::ipa::ipu3 {
  */
 
 /**
- * \struct IPAFrameContext
- * \brief Context for a frame
- *
- * The frame context stores data specific to a single frame processed by the
- * IPA. Each frame processed by the IPA has a context associated with it,
- * accessible through the IPAContext structure.
- *
- * Fields in the frame context should reflect values and controls
- * associated with the specific frame as requested by the application, and
- * as configured by the hardware. Fields can be read by algorithms to
- * determine if they should update any specific action for this frame, and
- * finally to update the metadata control lists when the frame is fully
- * completed.
- */
-
-/**
  * \struct IPAContext
  * \brief Global IPA context data shared between all algorithms
  *
@@ -84,22 +68,21 @@ namespace libcamera::ipa::ipu3 {
  * \brief AF grid configuration of the IPA
  *
  * \var IPASessionConfiguration::af.afGrid
- * \brief AF scene grid configuration.
+ * \brief AF scene grid configuration
  */
 
 /**
  * \var IPAActiveState::af
  * \brief Context for the Automatic Focus algorithm
  *
- * \struct IPAActiveState::af
  * \var IPAActiveState::af.focus
  * \brief Current position of the lens
  *
  * \var IPAActiveState::af.maxVariance
- * \brief The maximum variance of the current image.
+ * \brief The maximum variance of the current image
  *
  * \var IPAActiveState::af.stable
- * \brief It is set to true, if the best focus is found.
+ * \brief It is set to true, if the best focus is found
  */
 
 /**
@@ -128,6 +111,9 @@ namespace libcamera::ipa::ipu3 {
  *
  * \var IPASessionConfiguration::sensor.defVBlank
  * \brief The default vblank value of the sensor
+ *
+ * \var IPASessionConfiguration::sensor.size
+ * \brief Sensor output resolution
  */
 
 /**
@@ -150,7 +136,7 @@ namespace libcamera::ipa::ipu3 {
  * \var IPAActiveState::awb
  * \brief Context for the Automatic White Balance algorithm
  *
- * \struct IPAActiveState::awb.gains
+ * \var IPAActiveState::awb.gains
  * \brief White balance gains
  *
  * \var IPAActiveState::awb.gains.red
@@ -181,25 +167,8 @@ namespace libcamera::ipa::ipu3 {
  */
 
 /**
- * \brief Default constructor for IPAFrameContext
- */
-IPAFrameContext::IPAFrameContext() = default;
-
-/**
- * \brief Construct a IPAFrameContext instance
- */
-IPAFrameContext::IPAFrameContext(uint32_t id, const ControlList &reqControls)
-	: frame(id), frameControls(reqControls)
-{
-	sensor = {};
-}
-
-/**
- * \var IPAFrameContext::frame
- * \brief The frame number
- *
- * \var IPAFrameContext::frameControls
- * \brief Controls sent in by the application while queuing the request
+ * \struct IPAFrameContext
+ * \brief IPU3-specific FrameContext
  *
  * \var IPAFrameContext::sensor
  * \brief Effective sensor values that were applied for the frame

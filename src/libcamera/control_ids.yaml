@@ -2,7 +2,7 @@
 #
 # Copyright (C) 2019, Google Inc.
 #
-%YAML 1.2
+%YAML 1.1
 ---
 # Unless otherwise stated, all controls are bi-directional, i.e. they can be
 # set through Request::controls() and returned out through Request::metadata().
@@ -291,7 +291,7 @@ controls:
         transformation. The 3x3 matrix is stored in conventional reading
         order in an array of 9 floating point values.
 
-      size: [3x3]
+      size: [3,3]
 
   - ScalerCrop:
       type: Rectangle

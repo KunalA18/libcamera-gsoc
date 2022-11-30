@@ -101,8 +101,14 @@ LOG_DEFINE_CATEGORY(SimplePipeline)
  *
  * During the breadth-first search, the pipeline is traversed from entity to
  * entity, by following media graph links from source to sink, starting at the
- * camera sensor. When reaching an entity (on its sink side), all its source
- * pads are considered to continue the graph traversal.
+ * camera sensor.
+ *
+ * When reaching an entity (on its sink side), if the entity is a V4L2 subdev
+ * that supports the streams API, the subdev internal routes are followed to
+ * find the connected source pads. Otherwise all of the entity's source pads
+ * are considered to continue the graph traversal. The pipeline handler
+ * currently considers the default internal routes only and doesn't attempt to
+ * setup custom routes. This can be extended if needed.
  *
  * The shortest path between the camera sensor and a video node is stored in
  * SimpleCameraData::entities_ as a list of SimpleCameraData::Entity structures,
@@ -186,6 +192,7 @@ namespace {
 
 static const SimplePipelineInfo supportedDevices[] = {
 	{ "imx7-csi", { { "pxp", 1 } } },
+	{ "mxc-isi", {} },
 	{ "qcom-camss", {} },
 	{ "sun6i-csi", {} },
 	{ "unicam", {} },
@@ -217,6 +224,11 @@ public:
 	struct Entity {
 		/* The media entity, always valid. */
 		MediaEntity *entity;
+		/*
+		 * Whether or not the entity is a subdev that supports the
+		 * routing API.
+		 */
+		bool supportsRouting;
 		/*
 		 * The local sink pad connected to the upstream entity, null for
 		 * the camera sensor at the beginning of the pipeline.
@@ -263,6 +275,7 @@ public:
 
 private:
 	void tryPipeline(unsigned int code, const Size &size);
+	static std::vector<const MediaPad *> routedSourcePads(MediaPad *sink);
 
 	void converterInputDone(FrameBuffer *buffer);
 	void converterOutputDone(FrameBuffer *buffer);
@@ -300,8 +313,8 @@ class SimplePipelineHandler : public PipelineHandler
 public:
 	SimplePipelineHandler(CameraManager *manager);
 
-	CameraConfiguration *generateConfiguration(Camera *camera,
-						   const StreamRoles &roles) override;
+	std::unique_ptr<CameraConfiguration> generateConfiguration(Camera *camera,
+		const StreamRoles &roles) override;
 	int configure(Camera *camera, CameraConfiguration *config) override;
 
 	int exportFrameBuffers(Camera *camera, Stream *stream,
@@ -334,6 +347,7 @@ private:
 	}
 
 	std::vector<MediaEntity *> locateSensors();
+	static int resetRoutingTable(V4L2Subdevice *subdev);
 
 	const MediaPad *acquirePipeline(SimpleCameraData *data);
 	void releasePipeline(SimpleCameraData *data);
@@ -388,17 +402,40 @@ SimpleCameraData::SimpleCameraData(SimplePipelineHandler *pipe,
 			break;
 		}
 
-		/* The actual breadth-first search algorithm. */
 		visited.insert(entity);
-		for (MediaPad *pad : entity->pads()) {
-			if (!(pad->flags() & MEDIA_PAD_FL_SOURCE))
-				continue;
 
+		/*
+		 * Add direct downstream entities to the search queue. If the
+		 * current entity supports the subdev internal routing API,
+		 * restrict the search to downstream entities reachable through
+		 * active routes.
+		 */
+
+		std::vector<const MediaPad *> pads;
+		bool supportsRouting = false;
+
+		if (sinkPad) {
+			pads = routedSourcePads(sinkPad);
+			if (!pads.empty())
+				supportsRouting = true;
+		}
+
+		if (pads.empty()) {
+			for (const MediaPad *pad : entity->pads()) {
+				if (!(pad->flags() & MEDIA_PAD_FL_SOURCE))
+					continue;
+				pads.push_back(pad);
+			}
+		}
+
+		for (const MediaPad *pad : pads) {
 			for (MediaLink *link : pad->links()) {
 				MediaEntity *next = link->sink()->entity();
 				if (visited.find(next) == visited.end()) {
 					queue.push({ next, link->sink() });
-					parents.insert({ next, { entity, sinkPad, pad, link } });
+
+					Entity e{ entity, supportsRouting, sinkPad, pad, link };
+					parents.insert({ next, e });
 				}
 			}
 		}
@@ -412,7 +449,7 @@ SimpleCameraData::SimpleCameraData(SimplePipelineHandler *pipe,
 	 * to the sensor. Store all the entities in the pipeline, from the
 	 * camera sensor to the video node, in entities_.
 	 */
-	entities_.push_front({ entity, sinkPad, nullptr, nullptr });
+	entities_.push_front({ entity, false, sinkPad, nullptr, nullptr });
 
 	for (auto it = parents.find(entity); it != parents.end();
 	     it = parents.find(entity)) {
@@ -577,15 +614,32 @@ int SimpleCameraData::setupLinks()
 	 * multiple sink links to be enabled together, even on different sink
 	 * pads. We must thus start by disabling all sink links (but the one we
 	 * want to enable) before enabling the pipeline link.
+	 *
+	 * The entities_ list stores entities along with their source link. We
+	 * need to process the link in the context of the sink entity, so
+	 * record the source link of the current entity as the sink link of the
+	 * next entity, and skip the first entity in the loop.
 	 */
-	for (SimpleCameraData::Entity &e : entities_) {
-		if (!e.sourceLink)
-			break;
+	MediaLink *sinkLink = nullptr;
 
-		MediaEntity *remote = e.sourceLink->sink()->entity();
-		for (MediaPad *pad : remote->pads()) {
+	for (SimpleCameraData::Entity &e : entities_) {
+		if (!sinkLink) {
+			sinkLink = e.sourceLink;
+			continue;
+		}
+
+		for (MediaPad *pad : e.entity->pads()) {
+			/*
+			 * If the entity supports the V4L2 internal routing API,
+			 * assume that it may carry multiple independent streams
+			 * concurrently, and only disable links on the sink and
+			 * source pads used by the pipeline.
+			 */
+			if (e.supportsRouting && pad != e.sink && pad != e.source)
+				continue;
+
 			for (MediaLink *link : pad->links()) {
-				if (link == e.sourceLink)
+				if (link == sinkLink)
 					continue;
 
 				if ((link->flags() & MEDIA_LNK_FL_ENABLED) &&
@@ -597,11 +651,13 @@ int SimpleCameraData::setupLinks()
 			}
 		}
 
-		if (!(e.sourceLink->flags() & MEDIA_LNK_FL_ENABLED)) {
-			ret = e.sourceLink->setEnabled(true);
+		if (!(sinkLink->flags() & MEDIA_LNK_FL_ENABLED)) {
+			ret = sinkLink->setEnabled(true);
 			if (ret < 0)
 				return ret;
 		}
+
+		sinkLink = e.sourceLink;
 	}
 
 	return 0;
@@ -771,6 +827,43 @@ void SimpleCameraData::converterOutputDone(FrameBuffer *buffer)
 		pipe->completeRequest(request);
 }
 
+/* Retrieve all source pads connected to a sink pad through active routes. */
+std::vector<const MediaPad *> SimpleCameraData::routedSourcePads(MediaPad *sink)
+{
+	MediaEntity *entity = sink->entity();
+	std::unique_ptr<V4L2Subdevice> subdev =
+		std::make_unique<V4L2Subdevice>(entity);
+
+	int ret = subdev->open();
+	if (ret < 0)
+		return {};
+
+	V4L2Subdevice::Routing routing = {};
+	ret = subdev->getRouting(&routing, V4L2Subdevice::ActiveFormat);
+	if (ret < 0)
+		return {};
+
+	std::vector<const MediaPad *> pads;
+
+	for (const struct v4l2_subdev_route &route : routing) {
+		if (sink->index() != route.sink_pad ||
+		    !(route.flags & V4L2_SUBDEV_ROUTE_FL_ACTIVE))
+			continue;
+
+		const MediaPad *pad = entity->getPadByIndex(route.source_pad);
+		if (!pad) {
+			LOG(SimplePipeline, Warning)
+				<< "Entity " << entity->name()
+				<< " has invalid route source pad "
+				<< route.source_pad;
+		}
+
+		pads.push_back(pad);
+	}
+
+	return pads;
+}
+
 /* -----------------------------------------------------------------------------
  * Camera Configuration
  */
@@ -918,7 +1011,7 @@ CameraConfiguration::Status SimpleCameraConfiguration::validate()
 				return Invalid;
 		} else {
 			V4L2DeviceFormat format;
-			format.fourcc = V4L2PixelFormat::fromPixelFormat(cfg.pixelFormat);
+			format.fourcc = data_->video_->toV4L2PixelFormat(cfg.pixelFormat);
 			format.size = cfg.size;
 
 			int ret = data_->video_->tryFormat(&format);
@@ -944,12 +1037,12 @@ SimplePipelineHandler::SimplePipelineHandler(CameraManager *manager)
 {
 }
 
-CameraConfiguration *SimplePipelineHandler::generateConfiguration(Camera *camera,
-								  const StreamRoles &roles)
+std::unique_ptr<CameraConfiguration>
+SimplePipelineHandler::generateConfiguration(Camera *camera, const StreamRoles &roles)
 {
 	SimpleCameraData *data = cameraData(camera);
-	CameraConfiguration *config =
-		new SimpleCameraConfiguration(camera, data);
+	std::unique_ptr<CameraConfiguration> config =
+		std::make_unique<SimpleCameraConfiguration>(camera, data);
 
 	if (roles.empty())
 		return config;
@@ -1031,7 +1124,7 @@ int SimplePipelineHandler::configure(Camera *camera, CameraConfiguration *c)
 		return ret;
 
 	/* Configure the video node. */
-	V4L2PixelFormat videoFormat = V4L2PixelFormat::fromPixelFormat(pipeConfig->captureFormat);
+	V4L2PixelFormat videoFormat = video->toV4L2PixelFormat(pipeConfig->captureFormat);
 
 	V4L2DeviceFormat captureFormat;
 	captureFormat.fourcc = videoFormat;
@@ -1263,6 +1356,37 @@ std::vector<MediaEntity *> SimplePipelineHandler::locateSensors()
 	return sensors;
 }
 
+int SimplePipelineHandler::resetRoutingTable(V4L2Subdevice *subdev)
+{
+	/* Reset the media entity routing table to its default state. */
+	V4L2Subdevice::Routing routing = {};
+
+	int ret = subdev->getRouting(&routing, V4L2Subdevice::TryFormat);
+	if (ret)
+		return ret;
+
+	ret = subdev->setRouting(&routing, V4L2Subdevice::ActiveFormat);
+	if (ret)
+		return ret;
+
+	/*
+	 * If the routing table is empty we won't be able to meaningfully use
+	 * the subdev.
+	 */
+	if (routing.empty()) {
+		LOG(SimplePipeline, Error)
+			<< "Default routing table of " << subdev->deviceNode()
+			<< " is empty";
+		return -EINVAL;
+	}
+
+	LOG(SimplePipeline, Debug)
+		<< "Routing table of " << subdev->deviceNode()
+		<< " reset to " << routing.toString();
+
+	return 0;
+}
+
 bool SimplePipelineHandler::match(DeviceEnumerator *enumerator)
 {
 	const SimplePipelineInfo *info = nullptr;
@@ -1355,6 +1479,23 @@ bool SimplePipelineHandler::match(DeviceEnumerator *enumerator)
 					<< ": " << strerror(-ret);
 				return false;
 			}
+
+			if (subdev->caps().hasStreams()) {
+				/*
+				 * Reset the routing table to its default state
+				 * to make sure entities are enumerate according
+				 * to the defaul routing configuration.
+				 */
+				ret = resetRoutingTable(subdev.get());
+				if (ret) {
+					LOG(SimplePipeline, Error)
+						<< "Failed to reset routes for "
+						<< subdev->deviceNode() << ": "
+						<< strerror(-ret);
+					return false;
+				}
+			}
+
 			break;
 
 		default:

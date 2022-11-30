@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: LGPL-2.1-or-later */
 /*
- * Copyright (C) 2019-2021, Raspberry Pi (Trading) Ltd.
+ * Copyright (C) 2019-2021, Raspberry Pi Ltd
  *
  * raspberrypi.cpp - Pipeline handler for Raspberry Pi devices
  */
@@ -33,7 +33,6 @@
 #include "libcamera/internal/bayer_format.h"
 #include "libcamera/internal/camera.h"
 #include "libcamera/internal/camera_sensor.h"
-#include "libcamera/internal/delayed_controls.h"
 #include "libcamera/internal/device_enumerator.h"
 #include "libcamera/internal/framebuffer.h"
 #include "libcamera/internal/ipa_manager.h"
@@ -41,6 +40,7 @@
 #include "libcamera/internal/pipeline_handler.h"
 #include "libcamera/internal/v4l2_videodevice.h"
 
+#include "delayed_controls.h"
 #include "dma_heaps.h"
 #include "rpi_stream.h"
 
@@ -67,6 +67,14 @@ SensorFormats populateSensorFormats(std::unique_ptr<CameraSensor> &sensor)
 	return formats;
 }
 
+bool isMonoSensor(std::unique_ptr<CameraSensor> &sensor)
+{
+	unsigned int mbusCode = sensor->mbusCodes()[0];
+	const BayerFormat &bayer = BayerFormat::fromMbusCode(mbusCode);
+
+	return bayer.order == BayerFormat::Order::MONO;
+}
+
 PixelFormat mbusCodeToPixelFormat(unsigned int mbus_code,
 				  BayerFormat::Packing packingReq)
 {
@@ -90,13 +98,14 @@ PixelFormat mbusCodeToPixelFormat(unsigned int mbus_code,
 	return pix;
 }
 
-V4L2DeviceFormat toV4L2DeviceFormat(const V4L2SubdeviceFormat &format,
+V4L2DeviceFormat toV4L2DeviceFormat(const V4L2VideoDevice *dev,
+				    const V4L2SubdeviceFormat &format,
 				    BayerFormat::Packing packingReq)
 {
 	const PixelFormat pix = mbusCodeToPixelFormat(format.mbus_code, packingReq);
 	V4L2DeviceFormat deviceFormat;
 
-	deviceFormat.fourcc = V4L2PixelFormat::fromPixelFormat(pix);
+	deviceFormat.fourcc = dev->toV4L2PixelFormat(pix);
 	deviceFormat.size = format.size;
 	deviceFormat.colorSpace = format.colorSpace;
 	return deviceFormat;
@@ -104,18 +113,8 @@ V4L2DeviceFormat toV4L2DeviceFormat(const V4L2SubdeviceFormat &format,
 
 bool isRaw(const PixelFormat &pixFmt)
 {
-	/*
-	 * The isRaw test might be redundant right now the pipeline handler only
-	 * supports RAW sensors. Leave it in for now, just as a sanity check.
-	 */
-	if (!pixFmt.isValid())
-		return false;
-
-	const PixelFormatInfo &info = PixelFormatInfo::info(pixFmt);
-	if (!info.isValid())
-		return false;
-
-	return info.colourEncoding == PixelFormatInfo::ColourEncodingRAW;
+	/* This test works for both Bayer and raw mono formats. */
+	return BayerFormat::fromPixelFormat(pixFmt).isValid();
 }
 
 double scoreFormat(double desired, double actual)
@@ -207,7 +206,7 @@ public:
 	void runIsp(uint32_t bufferId);
 	void embeddedComplete(uint32_t bufferId);
 	void setIspControls(const ControlList &controls);
-	void setDelayedControls(const ControlList &controls);
+	void setDelayedControls(const ControlList &controls, uint32_t delayContext);
 	void setSensorControls(ControlList &controls);
 	void unicamTimeout();
 
@@ -244,7 +243,7 @@ public:
 	RPi::DmaHeap dmaHeap_;
 	SharedFD lsTable_;
 
-	std::unique_ptr<DelayedControls> delayedCtrls_;
+	std::unique_ptr<RPi::DelayedControls> delayedCtrls_;
 	bool sensorMetadata_;
 
 	/*
@@ -252,12 +251,18 @@ public:
 	 * thread. So, we do not need to have any mutex to protect access to any
 	 * of the variables below.
 	 */
-	enum class State { Stopped, Idle, Busy, IpaComplete };
+	enum class State { Stopped, Idle, Busy, IpaComplete, Error };
 	State state_;
+
+	bool isRunning()
+	{
+		return state_ != State::Stopped && state_ != State::Error;
+	}
 
 	struct BayerFrame {
 		FrameBuffer *buffer;
 		ControlList controls;
+		unsigned int delayContext;
 	};
 
 	std::queue<BayerFrame> bayerQueue_;
@@ -319,7 +324,8 @@ class PipelineHandlerRPi : public PipelineHandler
 public:
 	PipelineHandlerRPi(CameraManager *manager);
 
-	CameraConfiguration *generateConfiguration(Camera *camera, const StreamRoles &roles) override;
+	std::unique_ptr<CameraConfiguration> generateConfiguration(Camera *camera,
+		const StreamRoles &roles) override;
 	int configure(Camera *camera, CameraConfiguration *config) override;
 
 	int exportFrameBuffers(Camera *camera, Stream *stream,
@@ -331,6 +337,8 @@ public:
 	int queueRequestDevice(Camera *camera, Request *request) override;
 
 	bool match(DeviceEnumerator *enumerator) override;
+
+	void releaseDevice(Camera *camera) override;
 
 private:
 	RPiCameraData *cameraData(Camera *camera)
@@ -364,7 +372,7 @@ CameraConfiguration::Status RPiCameraConfiguration::validate()
 	 * error means the platform can never run. Let's just print a warning
 	 * and continue regardless; the rotation is effectively set to zero.
 	 */
-	int32_t rotation = data_->sensor_->properties().get(properties::Rotation);
+	int32_t rotation = data_->sensor_->properties().get(properties::Rotation).value_or(0);
 	bool success;
 	Transform rotationTransform = transformFromRotation(rotation, &success);
 	if (!success)
@@ -422,15 +430,15 @@ CameraConfiguration::Status RPiCameraConfiguration::validate()
 			 * Calculate the best sensor mode we can use based on
 			 * the user request.
 			 */
+			V4L2VideoDevice *unicam = data_->unicam_[Unicam::Image].dev();
 			const PixelFormatInfo &info = PixelFormatInfo::info(cfg.pixelFormat);
 			unsigned int bitDepth = info.isValid() ? info.bitsPerPixel : defaultRawBitDepth;
 			V4L2SubdeviceFormat sensorFormat = findBestFormat(data_->sensorFormats_, cfg.size, bitDepth);
 			BayerFormat::Packing packing = BayerFormat::Packing::CSI2;
 			if (info.isValid() && !info.packed)
 				packing = BayerFormat::Packing::None;
-			V4L2DeviceFormat unicamFormat = toV4L2DeviceFormat(sensorFormat,
-									   packing);
-			int ret = data_->unicam_[Unicam::Image].dev()->tryFormat(&unicamFormat);
+			V4L2DeviceFormat unicamFormat = toV4L2DeviceFormat(unicam, sensorFormat, packing);
+			int ret = unicam->tryFormat(&unicamFormat);
 			if (ret)
 				return Invalid;
 
@@ -516,14 +524,14 @@ CameraConfiguration::Status RPiCameraConfiguration::validate()
 
 		V4L2VideoDevice::Formats fmts = dev->formats();
 
-		if (fmts.find(V4L2PixelFormat::fromPixelFormat(cfgPixFmt)) == fmts.end()) {
+		if (fmts.find(dev->toV4L2PixelFormat(cfgPixFmt)) == fmts.end()) {
 			/* If we cannot find a native format, use a default one. */
 			cfgPixFmt = formats::NV12;
 			status = Adjusted;
 		}
 
 		V4L2DeviceFormat format;
-		format.fourcc = V4L2PixelFormat::fromPixelFormat(cfg.pixelFormat);
+		format.fourcc = dev->toV4L2PixelFormat(cfg.pixelFormat);
 		format.size = cfg.size;
 		format.colorSpace = cfg.colorSpace;
 
@@ -557,11 +565,12 @@ PipelineHandlerRPi::PipelineHandlerRPi(CameraManager *manager)
 {
 }
 
-CameraConfiguration *PipelineHandlerRPi::generateConfiguration(Camera *camera,
-							       const StreamRoles &roles)
+std::unique_ptr<CameraConfiguration>
+PipelineHandlerRPi::generateConfiguration(Camera *camera, const StreamRoles &roles)
 {
 	RPiCameraData *data = cameraData(camera);
-	CameraConfiguration *config = new RPiCameraConfiguration(data);
+	std::unique_ptr<CameraConfiguration> config =
+		std::make_unique<RPiCameraConfiguration>(data);
 	V4L2SubdeviceFormat sensorFormat;
 	unsigned int bufferCount;
 	PixelFormat pixelFormat;
@@ -592,11 +601,11 @@ CameraConfiguration *PipelineHandlerRPi::generateConfiguration(Camera *camera,
 			fmts = data->isp_[Isp::Output0].dev()->formats();
 			pixelFormat = formats::NV12;
 			/*
-			 * Still image codecs usually expect the JPEG color space.
+			 * Still image codecs usually expect the sYCC color space.
 			 * Even RGB codecs will be fine as the RGB we get with the
-			 * JPEG color space is the same as sRGB.
+			 * sYCC color space is the same as sRGB.
 			 */
-			colorSpace = ColorSpace::Jpeg;
+			colorSpace = ColorSpace::Sycc;
 			/* Return the largest sensor resolution. */
 			size = sensorSize;
 			bufferCount = 1;
@@ -627,7 +636,7 @@ CameraConfiguration *PipelineHandlerRPi::generateConfiguration(Camera *camera,
 		case StreamRole::Viewfinder:
 			fmts = data->isp_[Isp::Output0].dev()->formats();
 			pixelFormat = formats::ARGB8888;
-			colorSpace = ColorSpace::Jpeg;
+			colorSpace = ColorSpace::Sycc;
 			size = { 800, 600 };
 			bufferCount = 4;
 			outCount++;
@@ -636,13 +645,11 @@ CameraConfiguration *PipelineHandlerRPi::generateConfiguration(Camera *camera,
 		default:
 			LOG(RPI, Error) << "Requested stream role not supported: "
 					<< role;
-			delete config;
 			return nullptr;
 		}
 
 		if (rawCount > 1 || outCount > 2) {
 			LOG(RPI, Error) << "Invalid stream roles requested";
-			delete config;
 			return nullptr;
 		}
 
@@ -751,8 +758,9 @@ int PipelineHandlerRPi::configure(Camera *camera, CameraConfiguration *config)
 	if (ret)
 		return ret;
 
-	V4L2DeviceFormat unicamFormat = toV4L2DeviceFormat(sensorFormat, packing);
-	ret = data->unicam_[Unicam::Image].dev()->setFormat(&unicamFormat);
+	V4L2VideoDevice *unicam = data->unicam_[Unicam::Image].dev();
+	V4L2DeviceFormat unicamFormat = toV4L2DeviceFormat(unicam, sensorFormat, packing);
+	ret = unicam->setFormat(&unicamFormat);
 	if (ret)
 		return ret;
 
@@ -783,7 +791,7 @@ int PipelineHandlerRPi::configure(Camera *camera, CameraConfiguration *config)
 		RPi::Stream *stream = i == maxIndex ? &data->isp_[Isp::Output0]
 						    : &data->isp_[Isp::Output1];
 
-		V4L2PixelFormat fourcc = V4L2PixelFormat::fromPixelFormat(cfg.pixelFormat);
+		V4L2PixelFormat fourcc = stream->dev()->toV4L2PixelFormat(cfg.pixelFormat);
 		format.size = cfg.size;
 		format.fourcc = fourcc;
 		format.colorSpace = cfg.colorSpace;
@@ -826,13 +834,15 @@ int PipelineHandlerRPi::configure(Camera *camera, CameraConfiguration *config)
 	 * statistics coming from the hardware.
 	 */
 	if (!output0Set) {
+		V4L2VideoDevice *dev = data->isp_[Isp::Output0].dev();
+
 		maxSize = Size(320, 240);
 		format = {};
 		format.size = maxSize;
-		format.fourcc = V4L2PixelFormat::fromPixelFormat(formats::YUV420);
+		format.fourcc = dev->toV4L2PixelFormat(formats::YUV420);
 		/* No one asked for output, so the color space doesn't matter. */
-		format.colorSpace = ColorSpace::Jpeg;
-		ret = data->isp_[Isp::Output0].dev()->setFormat(&format);
+		format.colorSpace = ColorSpace::Sycc;
+		ret = dev->setFormat(&format);
 		if (ret) {
 			LOG(RPI, Error)
 				<< "Failed to set default format on ISP Output0: "
@@ -856,18 +866,20 @@ int PipelineHandlerRPi::configure(Camera *camera, CameraConfiguration *config)
 	 * colour denoise will not run.
 	 */
 	if (!output1Set) {
+		V4L2VideoDevice *dev = data->isp_[Isp::Output1].dev();
+
 		V4L2DeviceFormat output1Format;
 		constexpr Size maxDimensions(1200, 1200);
 		const Size limit = maxDimensions.boundedToAspectRatio(format.size);
 
 		output1Format.size = (format.size / 2).boundedTo(limit).alignedDownTo(2, 2);
 		output1Format.colorSpace = format.colorSpace;
-		output1Format.fourcc = V4L2PixelFormat::fromPixelFormat(formats::YUV420);
+		output1Format.fourcc = dev->toV4L2PixelFormat(formats::YUV420);
 
 		LOG(RPI, Debug) << "Setting ISP Output1 (internal) to "
 				<< output1Format;
 
-		ret = data->isp_[Isp::Output1].dev()->setFormat(&output1Format);
+		ret = dev->setFormat(&output1Format);
 		if (ret) {
 			LOG(RPI, Error) << "Failed to set format on ISP Output1: "
 					<< ret;
@@ -946,8 +958,9 @@ int PipelineHandlerRPi::configure(Camera *camera, CameraConfiguration *config)
 		ctrlMap.emplace(c.first, c.second);
 
 	/* Add the ScalerCrop control limits based on the current mode. */
-	ctrlMap.emplace(&controls::ScalerCrop,
-			ControlInfo(Rectangle(data->ispMinCropSize_), Rectangle(data->sensorInfo_.outputSize)));
+	Rectangle ispMinCrop(data->ispMinCropSize_);
+	ispMinCrop.scaleBy(data->sensorInfo_.analogCrop.size(), data->sensorInfo_.outputSize);
+	ctrlMap[&controls::ScalerCrop] = ControlInfo(ispMinCrop, Rectangle(data->sensorInfo_.analogCrop.size()));
 
 	data->controlInfo_ = ControlInfoMap(std::move(ctrlMap), result.controlInfo.idmap());
 
@@ -1054,7 +1067,7 @@ int PipelineHandlerRPi::start(Camera *camera, const ControlList *controls)
 	 * Reset the delayed controls with the gain and exposure values set by
 	 * the IPA.
 	 */
-	data->delayedCtrls_->reset();
+	data->delayedCtrls_->reset(0);
 
 	data->state_ = RPiCameraData::State::Idle;
 
@@ -1102,7 +1115,7 @@ int PipelineHandlerRPi::queueRequestDevice(Camera *camera, Request *request)
 {
 	RPiCameraData *data = cameraData(camera);
 
-	if (data->state_ == RPiCameraData::State::Stopped)
+	if (!data->isRunning())
 		return -EINVAL;
 
 	LOG(RPI, Debug) << "queueRequestDevice: New request.";
@@ -1181,6 +1194,12 @@ bool PipelineHandlerRPi::match(DeviceEnumerator *enumerator)
 	}
 
 	return !!numCameras;
+}
+
+void PipelineHandlerRPi::releaseDevice(Camera *camera)
+{
+	RPiCameraData *data = cameraData(camera);
+	data->freeBuffers();
 }
 
 int PipelineHandlerRPi::registerCamera(MediaDevice *unicam, MediaDevice *isp, MediaEntity *sensorEntity)
@@ -1284,12 +1303,13 @@ int PipelineHandlerRPi::registerCamera(MediaDevice *unicam, MediaDevice *isp, Me
 	 * Setup our delayed control writer with the sensor default
 	 * gain and exposure delays. Mark VBLANK for priority write.
 	 */
-	std::unordered_map<uint32_t, DelayedControls::ControlParams> params = {
+	std::unordered_map<uint32_t, RPi::DelayedControls::ControlParams> params = {
 		{ V4L2_CID_ANALOGUE_GAIN, { result.sensorConfig.gainDelay, false } },
 		{ V4L2_CID_EXPOSURE, { result.sensorConfig.exposureDelay, false } },
+		{ V4L2_CID_HBLANK, { result.sensorConfig.hblankDelay, false } },
 		{ V4L2_CID_VBLANK, { result.sensorConfig.vblankDelay, true } }
 	};
-	data->delayedCtrls_ = std::make_unique<DelayedControls>(data->sensor_->device(), params);
+	data->delayedCtrls_ = std::make_unique<RPi::DelayedControls>(data->sensor_->device(), params);
 	data->sensorMetadata_ = result.sensorConfig.sensorMetadata;
 
 	/* Register initial controls that the Raspberry Pi IPA can handle. */
@@ -1465,10 +1485,10 @@ int PipelineHandlerRPi::prepareBuffers(Camera *camera)
 	 * Pass the stats and embedded data buffers to the IPA. No other
 	 * buffers need to be passed.
 	 */
-	mapBuffers(camera, data->isp_[Isp::Stats].getBuffers(), ipa::RPi::MaskStats);
+	mapBuffers(camera, data->isp_[Isp::Stats].getBuffers(), RPi::MaskStats);
 	if (data->sensorMetadata_)
 		mapBuffers(camera, data->unicam_[Unicam::Embedded].getBuffers(),
-			   ipa::RPi::MaskEmbeddedData);
+			   RPi::MaskEmbeddedData);
 
 	return 0;
 }
@@ -1539,10 +1559,14 @@ int RPiCameraData::loadIPA(ipa::RPi::IPAInitResult *result)
 	 */
 	std::string configurationFile;
 	char const *configFromEnv = utils::secure_getenv("LIBCAMERA_RPI_TUNING_FILE");
-	if (!configFromEnv || *configFromEnv == '\0')
-		configurationFile = ipa_->configurationFile(sensor_->model() + ".json");
-	else
+	if (!configFromEnv || *configFromEnv == '\0') {
+		std::string model = sensor_->model();
+		if (isMonoSensor(sensor_))
+			model += "_mono";
+		configurationFile = ipa_->configurationFile(model + ".json");
+	} else {
 		configurationFile = std::string(configFromEnv);
+	}
 
 	IPASettings settings(configurationFile, sensor_->model());
 
@@ -1701,10 +1725,10 @@ void RPiCameraData::enumerateVideoDevices(MediaLink *link)
 
 void RPiCameraData::statsMetadataComplete(uint32_t bufferId, const ControlList &controls)
 {
-	if (state_ == State::Stopped)
+	if (!isRunning())
 		return;
 
-	FrameBuffer *buffer = isp_[Isp::Stats].getBuffers().at(bufferId);
+	FrameBuffer *buffer = isp_[Isp::Stats].getBuffers().at(bufferId & RPi::MaskID);
 
 	handleStreamBuffer(buffer, &isp_[Isp::Stats]);
 
@@ -1716,15 +1740,15 @@ void RPiCameraData::statsMetadataComplete(uint32_t bufferId, const ControlList &
 	 * Inform the sensor of the latest colour gains if it has the
 	 * V4L2_CID_NOTIFY_GAINS control (which means notifyGainsUnity_ is set).
 	 */
-	if (notifyGainsUnity_ && controls.contains(libcamera::controls::ColourGains)) {
-		libcamera::Span<const float> colourGains = controls.get(libcamera::controls::ColourGains);
+	const auto &colourGains = controls.get(libcamera::controls::ColourGains);
+	if (notifyGainsUnity_ && colourGains) {
 		/* The control wants linear gains in the order B, Gb, Gr, R. */
 		ControlList ctrls(sensor_->controls());
 		std::array<int32_t, 4> gains{
-			static_cast<int32_t>(colourGains[1] * *notifyGainsUnity_),
+			static_cast<int32_t>((*colourGains)[1] * *notifyGainsUnity_),
 			*notifyGainsUnity_,
 			*notifyGainsUnity_,
-			static_cast<int32_t>(colourGains[0] * *notifyGainsUnity_)
+			static_cast<int32_t>((*colourGains)[0] * *notifyGainsUnity_)
 		};
 		ctrls.set(V4L2_CID_NOTIFY_GAINS, Span<const int32_t>{ gains });
 
@@ -1737,12 +1761,12 @@ void RPiCameraData::statsMetadataComplete(uint32_t bufferId, const ControlList &
 
 void RPiCameraData::runIsp(uint32_t bufferId)
 {
-	if (state_ == State::Stopped)
+	if (!isRunning())
 		return;
 
-	FrameBuffer *buffer = unicam_[Unicam::Image].getBuffers().at(bufferId);
+	FrameBuffer *buffer = unicam_[Unicam::Image].getBuffers().at(bufferId & RPi::MaskID);
 
-	LOG(RPI, Debug) << "Input re-queue to ISP, buffer id " << bufferId
+	LOG(RPI, Debug) << "Input re-queue to ISP, buffer id " << (bufferId & RPi::MaskID)
 			<< ", timestamp: " << buffer->metadata().timestamp;
 
 	isp_[Isp::Input].queueBuffer(buffer);
@@ -1752,10 +1776,10 @@ void RPiCameraData::runIsp(uint32_t bufferId)
 
 void RPiCameraData::embeddedComplete(uint32_t bufferId)
 {
-	if (state_ == State::Stopped)
+	if (!isRunning())
 		return;
 
-	FrameBuffer *buffer = unicam_[Unicam::Embedded].getBuffers().at(bufferId);
+	FrameBuffer *buffer = unicam_[Unicam::Embedded].getBuffers().at(bufferId & RPi::MaskID);
 	handleStreamBuffer(buffer, &unicam_[Unicam::Embedded]);
 	handleState();
 }
@@ -1777,9 +1801,9 @@ void RPiCameraData::setIspControls(const ControlList &controls)
 	handleState();
 }
 
-void RPiCameraData::setDelayedControls(const ControlList &controls)
+void RPiCameraData::setDelayedControls(const ControlList &controls, uint32_t delayContext)
 {
-	if (!delayedCtrls_->push(controls))
+	if (!delayedCtrls_->push(controls, delayContext))
 		LOG(RPI, Error) << "V4L2 DelayedControl set failed";
 	handleState();
 }
@@ -1811,6 +1835,17 @@ void RPiCameraData::unicamTimeout()
 	LOG(RPI, Error) << "Unicam has timed out!";
 	LOG(RPI, Error) << "Please check that your camera sensor connector is attached securely.";
 	LOG(RPI, Error) << "Alternatively, try another cable and/or sensor.";
+
+	state_ = RPiCameraData::State::Error;
+	/*
+	 * To allow the application to attempt a recovery from this timeout,
+	 * stop all devices streaming, and return any outstanding requests as
+	 * incomplete and cancelled.
+	 */
+	for (auto const stream : streams_)
+		stream->dev()->streamOff();
+
+	clearIncompleteRequests();
 }
 
 void RPiCameraData::unicamBufferDequeue(FrameBuffer *buffer)
@@ -1818,7 +1853,7 @@ void RPiCameraData::unicamBufferDequeue(FrameBuffer *buffer)
 	RPi::Stream *stream = nullptr;
 	int index;
 
-	if (state_ == State::Stopped)
+	if (!isRunning())
 		return;
 
 	for (RPi::Stream &s : unicam_) {
@@ -1841,13 +1876,13 @@ void RPiCameraData::unicamBufferDequeue(FrameBuffer *buffer)
 		 * Lookup the sensor controls used for this frame sequence from
 		 * DelayedControl and queue them along with the frame buffer.
 		 */
-		ControlList ctrl = delayedCtrls_->get(buffer->metadata().sequence);
+		auto [ctrl, delayContext] = delayedCtrls_->get(buffer->metadata().sequence);
 		/*
 		 * Add the frame timestamp to the ControlList for the IPA to use
 		 * as it does not receive the FrameBuffer object.
 		 */
 		ctrl.set(controls::SensorTimestamp, buffer->metadata().timestamp);
-		bayerQueue_.push({ buffer, std::move(ctrl) });
+		bayerQueue_.push({ buffer, std::move(ctrl), delayContext });
 	} else {
 		embeddedQueue_.push(buffer);
 	}
@@ -1857,7 +1892,7 @@ void RPiCameraData::unicamBufferDequeue(FrameBuffer *buffer)
 
 void RPiCameraData::ispInputDequeue(FrameBuffer *buffer)
 {
-	if (state_ == State::Stopped)
+	if (!isRunning())
 		return;
 
 	LOG(RPI, Debug) << "Stream ISP Input buffer complete"
@@ -1874,7 +1909,7 @@ void RPiCameraData::ispOutputDequeue(FrameBuffer *buffer)
 	RPi::Stream *stream = nullptr;
 	int index;
 
-	if (state_ == State::Stopped)
+	if (!isRunning())
 		return;
 
 	for (RPi::Stream &s : isp_) {
@@ -1897,7 +1932,8 @@ void RPiCameraData::ispOutputDequeue(FrameBuffer *buffer)
 	 * application until after the IPA signals so.
 	 */
 	if (stream == &isp_[Isp::Stats]) {
-		ipa_->signalStatReady(ipa::RPi::MaskStats | static_cast<unsigned int>(index));
+		ipa_->signalStatReady(RPi::MaskStats | static_cast<unsigned int>(index),
+				      requestQueue_.front()->sequence());
 	} else {
 		/* Any other ISP output can be handed back to the application now. */
 		handleStreamBuffer(buffer, stream);
@@ -1972,7 +2008,7 @@ void RPiCameraData::handleExternalBuffer(FrameBuffer *buffer, RPi::Stream *strea
 {
 	unsigned int id = stream->getBufferId(buffer);
 
-	if (!(id & ipa::RPi::MaskExternalBuffer))
+	if (!(id & RPi::MaskExternalBuffer))
 		return;
 
 	/* Stop the Stream object from tracking the buffer. */
@@ -1984,6 +2020,7 @@ void RPiCameraData::handleState()
 	switch (state_) {
 	case State::Stopped:
 	case State::Busy:
+	case State::Error:
 		break;
 
 	case State::IpaComplete:
@@ -2051,8 +2088,9 @@ Rectangle RPiCameraData::scaleIspCrop(const Rectangle &ispCrop) const
 
 void RPiCameraData::applyScalerCrop(const ControlList &controls)
 {
-	if (controls.contains(controls::ScalerCrop)) {
-		Rectangle nativeCrop = controls.get<Rectangle>(controls::ScalerCrop);
+	const auto &scalerCrop = controls.get<Rectangle>(controls::ScalerCrop);
+	if (scalerCrop) {
+		Rectangle nativeCrop = *scalerCrop;
 
 		if (!nativeCrop.width || !nativeCrop.height)
 			nativeCrop = { 0, 0, 1, 1 };
@@ -2090,7 +2128,7 @@ void RPiCameraData::fillRequestMetadata(const ControlList &bufferControls,
 					Request *request)
 {
 	request->metadata().set(controls::SensorTimestamp,
-				bufferControls.get(controls::SensorTimestamp));
+				bufferControls.get(controls::SensorTimestamp).value_or(0));
 
 	request->metadata().set(controls::ScalerCrop, scalerCrop_);
 }
@@ -2138,13 +2176,15 @@ void RPiCameraData::tryRunPipeline()
 			<< " Bayer buffer id: " << bayerId;
 
 	ipa::RPi::ISPConfig ispPrepare;
-	ispPrepare.bayerBufferId = ipa::RPi::MaskBayerData | bayerId;
+	ispPrepare.bayerBufferId = RPi::MaskBayerData | bayerId;
 	ispPrepare.controls = std::move(bayerFrame.controls);
+	ispPrepare.ipaContext = request->sequence();
+	ispPrepare.delayContext = bayerFrame.delayContext;
 
 	if (embeddedBuffer) {
 		unsigned int embeddedId = unicam_[Unicam::Embedded].getBufferId(embeddedBuffer);
 
-		ispPrepare.embeddedBufferId = ipa::RPi::MaskEmbeddedData | embeddedId;
+		ispPrepare.embeddedBufferId = RPi::MaskEmbeddedData | embeddedId;
 		ispPrepare.embeddedBufferPresent = true;
 
 		LOG(RPI, Debug) << "Signalling signalIspPrepare:"
@@ -2159,16 +2199,12 @@ bool RPiCameraData::findMatchingBuffers(BayerFrame &bayerFrame, FrameBuffer *&em
 	if (bayerQueue_.empty())
 		return false;
 
-	/* Start with the front of the bayer queue. */
-	bayerFrame = std::move(bayerQueue_.front());
-	bayerQueue_.pop();
-
 	/*
 	 * Find the embedded data buffer with a matching timestamp to pass to
 	 * the IPA. Any embedded buffers with a timestamp lower than the
 	 * current bayer buffer will be removed and re-queued to the driver.
 	 */
-	uint64_t ts = bayerFrame.buffer->metadata().timestamp;
+	uint64_t ts = bayerQueue_.front().buffer->metadata().timestamp;
 	embeddedBuffer = nullptr;
 	while (!embeddedQueue_.empty()) {
 		FrameBuffer *b = embeddedQueue_.front();
@@ -2188,9 +2224,22 @@ bool RPiCameraData::findMatchingBuffers(BayerFrame &bayerFrame, FrameBuffer *&em
 	}
 
 	if (!embeddedBuffer && sensorMetadata_) {
+		if (embeddedQueue_.empty()) {
+			/*
+			 * If the embedded buffer queue is empty, wait for the next
+			 * buffer to arrive - dequeue ordering may send the image
+			 * buffer first.
+			 */
+			LOG(RPI, Debug) << "Waiting for next embedded buffer.";
+			return false;
+		}
+
 		/* Log if there is no matching embedded data buffer found. */
 		LOG(RPI, Debug) << "Returning bayer frame without a matching embedded buffer.";
 	}
+
+	bayerFrame = std::move(bayerQueue_.front());
+	bayerQueue_.pop();
 
 	return true;
 }

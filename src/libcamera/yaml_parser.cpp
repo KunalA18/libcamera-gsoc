@@ -31,12 +31,6 @@ namespace {
 /* Empty static YamlObject as a safe result for invalid operations */
 static const YamlObject empty;
 
-void setOk(bool *ok, bool result)
-{
-	if (ok)
-		*ok = result;
-}
-
 } /* namespace */
 
 /**
@@ -91,7 +85,6 @@ std::size_t YamlObject::size() const
 {
 	switch (type_) {
 	case Type::Dictionary:
-		return dictionary_.size();
 	case Type::List:
 		return list_.size();
 	default:
@@ -100,176 +93,192 @@ std::size_t YamlObject::size() const
 }
 
 /**
- * \fn template<typename T> YamlObject::get<T>(
- *	const T &defaultValue, bool *ok) const
+ * \fn template<typename T> YamlObject::get<T>() const
  * \brief Parse the YamlObject as a \a T value
- * \param[in] defaultValue The default value when failing to parse
- * \param[out] ok The result of whether the parse succeeded
  *
  * This function parses the value of the YamlObject as a \a T object, and
  * returns the value. If parsing fails (usually because the YamlObject doesn't
- * store a \a T value), the \a defaultValue is returned, and \a ok is set to
- * false. Otherwise, the YamlObject value is returned, and \a ok is set to true.
+ * store a \a T value), std::nullopt is returned.
  *
- * The \a ok pointer is optional and can be a nullptr if the caller doesn't
- * need to know if parsing succeeded.
+ * \return The YamlObject value, or std::nullopt if parsing failed
+ */
+
+/**
+ * \fn template<typename T> YamlObject::get<T>(const T &defaultValue) const
+ * \brief Parse the YamlObject as a \a T value
+ * \param[in] defaultValue The default value when failing to parse
  *
- * \return Value as a bool type
+ * This function parses the value of the YamlObject as a \a T object, and
+ * returns the value. If parsing fails (usually because the YamlObject doesn't
+ * store a \a T value), the \a defaultValue is returned.
+ *
+ * \return The YamlObject value, or \a defaultValue if parsing failed
  */
 
 #ifndef __DOXYGEN__
 
 template<>
-bool YamlObject::get(const bool &defaultValue, bool *ok) const
+std::optional<bool> YamlObject::get() const
 {
-	setOk(ok, false);
-
 	if (type_ != Type::Value)
-		return defaultValue;
+		return std::nullopt;
 
-	if (value_ == "true") {
-		setOk(ok, true);
+	if (value_ == "true")
 		return true;
-	} else if (value_ == "false") {
-		setOk(ok, true);
+	else if (value_ == "false")
 		return false;
-	}
 
-	return defaultValue;
+	return std::nullopt;
 }
 
-template<>
-int16_t YamlObject::get(const int16_t &defaultValue, bool *ok) const
+namespace {
+
+bool parseSignedInteger(const std::string &str, long min, long max,
+			long *result)
 {
-	setOk(ok, false);
-
-	if (type_ != Type::Value)
-		return defaultValue;
-
-	if (value_ == "")
-		return defaultValue;
+	if (str == "")
+		return false;
 
 	char *end;
 
 	errno = 0;
-	int16_t value = std::strtol(value_.c_str(), &end, 10);
+	long value = std::strtol(str.c_str(), &end, 10);
 
-	if ('\0' != *end || errno == ERANGE ||
-	    value < std::numeric_limits<int16_t>::min() ||
-	    value > std::numeric_limits<int16_t>::max())
-		return defaultValue;
+	if ('\0' != *end || errno == ERANGE || value < min || value > max)
+		return false;
 
-	setOk(ok, true);
-	return value;
+	*result = value;
+	return true;
 }
 
-template<>
-uint16_t YamlObject::get(const uint16_t &defaultValue, bool *ok) const
+bool parseUnsignedInteger(const std::string &str, unsigned long max,
+			  unsigned long *result)
 {
-	setOk(ok, false);
-
-	if (type_ != Type::Value)
-		return defaultValue;
-
-	if (value_ == "")
-		return defaultValue;
+	if (str == "")
+		return false;
 
 	/*
-	 * libyaml parses all scalar values as strings. When a string has
-	 * leading spaces before a minus sign, for example "  -10", strtoul
-	 * skips leading spaces, accepts the leading minus sign, and the
-	 * calculated digits are negated as if by unary minus. Rule it out in
-	 * case the user gets a large number when the value is negative.
+	 * strtoul() accepts strings representing a negative number, in which
+	 * case it negates the converted value. We don't want to silently accept
+	 * negative values and return a large positive number, so check for a
+	 * minus sign (after optional whitespace) and return an error.
 	 */
-	std::size_t found = value_.find_first_not_of(" \t");
-	if (found != std::string::npos && value_[found] == '-')
-		return defaultValue;
+	std::size_t found = str.find_first_not_of(" \t");
+	if (found != std::string::npos && str[found] == '-')
+		return false;
 
 	char *end;
 
 	errno = 0;
-	uint16_t value = std::strtoul(value_.c_str(), &end, 10);
+	unsigned long value = std::strtoul(str.c_str(), &end, 10);
 
-	if ('\0' != *end || errno == ERANGE ||
-	    value < std::numeric_limits<uint16_t>::min() ||
-	    value > std::numeric_limits<uint16_t>::max())
-		return defaultValue;
+	if ('\0' != *end || errno == ERANGE || value > max)
+		return false;
 
-	setOk(ok, true);
+	*result = value;
+	return true;
+}
+
+} /* namespace */
+
+template<>
+std::optional<int8_t> YamlObject::get() const
+{
+	if (type_ != Type::Value)
+		return std::nullopt;
+
+	long value;
+
+	if (!parseSignedInteger(value_, std::numeric_limits<int8_t>::min(),
+				std::numeric_limits<int8_t>::max(), &value))
+		return std::nullopt;
+
 	return value;
 }
 
 template<>
-int32_t YamlObject::get(const int32_t &defaultValue, bool *ok) const
+std::optional<uint8_t> YamlObject::get() const
 {
-	setOk(ok, false);
-
 	if (type_ != Type::Value)
-		return defaultValue;
+		return std::nullopt;
 
-	if (value_ == "")
-		return defaultValue;
+	unsigned long value;
 
-	char *end;
+	if (!parseUnsignedInteger(value_, std::numeric_limits<uint8_t>::max(),
+				  &value))
+		return std::nullopt;
 
-	errno = 0;
-	long value = std::strtol(value_.c_str(), &end, 10);
-
-	if ('\0' != *end || errno == ERANGE ||
-	    value < std::numeric_limits<int32_t>::min() ||
-	    value > std::numeric_limits<int32_t>::max())
-		return defaultValue;
-
-	setOk(ok, true);
 	return value;
 }
 
 template<>
-uint32_t YamlObject::get(const uint32_t &defaultValue, bool *ok) const
+std::optional<int16_t> YamlObject::get() const
 {
-	setOk(ok, false);
-
 	if (type_ != Type::Value)
-		return defaultValue;
+		return std::nullopt;
 
-	if (value_ == "")
-		return defaultValue;
+	long value;
 
-	/*
-	 * libyaml parses all scalar values as strings. When a string has
-	 * leading spaces before a minus sign, for example "  -10", strtoul
-	 * skips leading spaces, accepts the leading minus sign, and the
-	 * calculated digits are negated as if by unary minus. Rule it out in
-	 * case the user gets a large number when the value is negative.
-	 */
-	std::size_t found = value_.find_first_not_of(" \t");
-	if (found != std::string::npos && value_[found] == '-')
-		return defaultValue;
+	if (!parseSignedInteger(value_, std::numeric_limits<int16_t>::min(),
+				std::numeric_limits<int16_t>::max(), &value))
+		return std::nullopt;
 
-	char *end;
-
-	errno = 0;
-	unsigned long value = std::strtoul(value_.c_str(), &end, 10);
-
-	if ('\0' != *end || errno == ERANGE ||
-	    value < std::numeric_limits<uint32_t>::min() ||
-	    value > std::numeric_limits<uint32_t>::max())
-		return defaultValue;
-
-	setOk(ok, true);
 	return value;
 }
 
 template<>
-double YamlObject::get(const double &defaultValue, bool *ok) const
+std::optional<uint16_t> YamlObject::get() const
 {
-	setOk(ok, false);
-
 	if (type_ != Type::Value)
-		return defaultValue;
+		return std::nullopt;
+
+	unsigned long value;
+
+	if (!parseUnsignedInteger(value_, std::numeric_limits<uint16_t>::max(),
+				  &value))
+		return std::nullopt;
+
+	return value;
+}
+
+template<>
+std::optional<int32_t> YamlObject::get() const
+{
+	if (type_ != Type::Value)
+		return std::nullopt;
+
+	long value;
+
+	if (!parseSignedInteger(value_, std::numeric_limits<int32_t>::min(),
+				std::numeric_limits<int32_t>::max(), &value))
+		return std::nullopt;
+
+	return value;
+}
+
+template<>
+std::optional<uint32_t> YamlObject::get() const
+{
+	if (type_ != Type::Value)
+		return std::nullopt;
+
+	unsigned long value;
+
+	if (!parseUnsignedInteger(value_, std::numeric_limits<uint32_t>::max(),
+				  &value))
+		return std::nullopt;
+
+	return value;
+}
+
+template<>
+std::optional<double> YamlObject::get() const
+{
+	if (type_ != Type::Value)
+		return std::nullopt;
 
 	if (value_ == "")
-		return defaultValue;
+		return std::nullopt;
 
 	char *end;
 
@@ -277,51 +286,96 @@ double YamlObject::get(const double &defaultValue, bool *ok) const
 	double value = std::strtod(value_.c_str(), &end);
 
 	if ('\0' != *end || errno == ERANGE)
-		return defaultValue;
+		return std::nullopt;
 
-	setOk(ok, true);
 	return value;
 }
 
 template<>
-std::string YamlObject::get(const std::string &defaultValue, bool *ok) const
+std::optional<std::string> YamlObject::get() const
 {
-	setOk(ok, false);
-
 	if (type_ != Type::Value)
-		return defaultValue;
+		return std::nullopt;
 
-	setOk(ok, true);
 	return value_;
 }
 
 template<>
-Size YamlObject::get(const Size &defaultValue, bool *ok) const
+std::optional<Size> YamlObject::get() const
 {
-	setOk(ok, false);
-
 	if (type_ != Type::List)
-		return defaultValue;
+		return std::nullopt;
 
 	if (list_.size() != 2)
-		return defaultValue;
+		return std::nullopt;
 
-	/*
-	 * Add a local variable to validate each dimension in case
-	 * that ok == nullptr.
-	 */
-	bool valid;
-	uint32_t width = list_[0]->get<uint32_t>(0, &valid);
-	if (!valid)
-		return defaultValue;
+	auto width = list_[0].value->get<uint32_t>();
+	if (!width)
+		return std::nullopt;
 
-	uint32_t height = list_[1]->get<uint32_t>(0, &valid);
-	if (!valid)
-		return defaultValue;
+	auto height = list_[1].value->get<uint32_t>();
+	if (!height)
+		return std::nullopt;
 
-	setOk(ok, true);
-	return Size(width, height);
+	return Size(*width, *height);
 }
+
+#endif /* __DOXYGEN__ */
+
+/**
+ * \fn template<typename T> YamlObject::getList<T>() const
+ * \brief Parse the YamlObject as a list of \a T
+ *
+ * This function parses the value of the YamlObject as a list of \a T objects,
+ * and returns the value as a \a std::vector<T>. If parsing fails, std::nullopt
+ * is returned.
+ *
+ * \return The YamlObject value as a std::vector<T>, or std::nullopt if parsing
+ * failed
+ */
+
+#ifndef __DOXYGEN__
+
+template<typename T,
+	 std::enable_if_t<
+		 std::is_same_v<bool, T> ||
+		 std::is_same_v<double, T> ||
+		 std::is_same_v<int8_t, T> ||
+		 std::is_same_v<uint8_t, T> ||
+		 std::is_same_v<int16_t, T> ||
+		 std::is_same_v<uint16_t, T> ||
+		 std::is_same_v<int32_t, T> ||
+		 std::is_same_v<uint32_t, T> ||
+		 std::is_same_v<std::string, T> ||
+		 std::is_same_v<Size, T>> *>
+std::optional<std::vector<T>> YamlObject::getList() const
+{
+	if (type_ != Type::List)
+		return std::nullopt;
+
+	std::vector<T> values;
+	values.reserve(list_.size());
+
+	for (const YamlObject &entry : asList()) {
+		const auto value = entry.get<T>();
+		if (!value)
+			return std::nullopt;
+		values.emplace_back(*value);
+	}
+
+	return values;
+}
+
+template std::optional<std::vector<bool>> YamlObject::getList<bool>() const;
+template std::optional<std::vector<double>> YamlObject::getList<double>() const;
+template std::optional<std::vector<int8_t>> YamlObject::getList<int8_t>() const;
+template std::optional<std::vector<uint8_t>> YamlObject::getList<uint8_t>() const;
+template std::optional<std::vector<int16_t>> YamlObject::getList<int16_t>() const;
+template std::optional<std::vector<uint16_t>> YamlObject::getList<uint16_t>() const;
+template std::optional<std::vector<int32_t>> YamlObject::getList<int32_t>() const;
+template std::optional<std::vector<uint32_t>> YamlObject::getList<uint32_t>() const;
+template std::optional<std::vector<std::string>> YamlObject::getList<std::string>() const;
+template std::optional<std::vector<Size>> YamlObject::getList<Size>() const;
 
 #endif /* __DOXYGEN__ */
 
@@ -379,7 +433,7 @@ const YamlObject &YamlObject::operator[](std::size_t index) const
 	if (type_ != Type::List || index >= size())
 		return empty;
 
-	return *list_[index];
+	return *list_[index].value;
 }
 
 /**
@@ -395,7 +449,7 @@ const YamlObject &YamlObject::operator[](std::size_t index) const
  */
 bool YamlObject::contains(const std::string &key) const
 {
-	if (dictionary_.find(key) == dictionary_.end())
+	if (dictionary_.find(std::ref(key)) == dictionary_.end())
 		return false;
 
 	return true;
@@ -667,16 +721,16 @@ int YamlParserContext::parseNextYamlObject(YamlObject &yamlObject, EventPtr even
 		yamlObject.type_ = YamlObject::Type::List;
 		auto &list = yamlObject.list_;
 		auto handler = [this, &list](EventPtr evt) {
-			list.emplace_back(new YamlObject());
-			return parseNextYamlObject(*list.back(), std::move(evt));
+			list.emplace_back(std::string{}, std::make_unique<YamlObject>());
+			return parseNextYamlObject(*list.back().value, std::move(evt));
 		};
 		return parseDictionaryOrList(YamlObject::Type::List, handler);
 	}
 
 	case YAML_MAPPING_START_EVENT: {
 		yamlObject.type_ = YamlObject::Type::Dictionary;
-		auto &dictionary = yamlObject.dictionary_;
-		auto handler = [this, &dictionary](EventPtr evtKey) {
+		auto &list = yamlObject.list_;
+		auto handler = [this, &list](EventPtr evtKey) {
 			/* Parse key */
 			if (evtKey->type != YAML_SCALAR_EVENT) {
 				LOG(YamlParser, Error) << "Expect key at line: "
@@ -694,10 +748,19 @@ int YamlParserContext::parseNextYamlObject(YamlObject &yamlObject, EventPtr even
 			if (!evtValue)
 				return -EINVAL;
 
-			auto elem = dictionary.emplace(key, std::make_unique<YamlObject>());
-			return parseNextYamlObject(*elem.first->second.get(), std::move(evtValue));
+			auto &elem = list.emplace_back(std::move(key),
+						       std::make_unique<YamlObject>());
+			return parseNextYamlObject(*elem.value, std::move(evtValue));
 		};
-		return parseDictionaryOrList(YamlObject::Type::Dictionary, handler);
+		int ret = parseDictionaryOrList(YamlObject::Type::Dictionary, handler);
+		if (ret)
+			return ret;
+
+		auto &dictionary = yamlObject.dictionary_;
+		for (const auto &elem : list)
+			dictionary.emplace(elem.key, elem.value.get());
+
+		return 0;
 	}
 
 	default:
@@ -753,6 +816,9 @@ int YamlParserContext::parseNextYamlObject(YamlObject &yamlObject, EventPtr even
  * The YamlParser::parse() function takes an open FILE, parses its contents, and
  * returns a pointer to a YamlObject corresponding to the root node of the YAML
  * document.
+ *
+ * The parser preserves the order of items in the YAML file, for both lists and
+ * dictionaries.
  */
 
 /**
@@ -775,7 +841,9 @@ std::unique_ptr<YamlObject> YamlParser::parse(File &file)
 	std::unique_ptr<YamlObject> root(new YamlObject());
 
 	if (context.parseContent(*root)) {
-		LOG(YamlParser, Error) << "Failed to parse YAML content";
+		LOG(YamlParser, Error)
+			<< "Failed to parse YAML content from "
+			<< file.fileName();
 		return nullptr;
 	}
 

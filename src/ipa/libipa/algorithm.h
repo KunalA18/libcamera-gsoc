@@ -7,7 +7,10 @@
 #pragma once
 
 #include <memory>
+#include <stdint.h>
 #include <string>
+
+#include <libcamera/controls.h>
 
 namespace libcamera {
 
@@ -35,14 +38,25 @@ public:
 		return 0;
 	}
 
+	virtual void queueRequest([[maybe_unused]] typename Module::Context &context,
+				  [[maybe_unused]] const uint32_t frame,
+				  [[maybe_unused]] typename Module::FrameContext &frameContext,
+				  [[maybe_unused]] const ControlList &controls)
+	{
+	}
+
 	virtual void prepare([[maybe_unused]] typename Module::Context &context,
+			     [[maybe_unused]] const uint32_t frame,
+			     [[maybe_unused]] typename Module::FrameContext &frameContext,
 			     [[maybe_unused]] typename Module::Params *params)
 	{
 	}
 
 	virtual void process([[maybe_unused]] typename Module::Context &context,
-			     [[maybe_unused]] typename Module::FrameContext *frameContext,
-			     [[maybe_unused]] const typename Module::Stats *stats)
+			     [[maybe_unused]] const uint32_t frame,
+			     [[maybe_unused]] typename Module::FrameContext &frameContext,
+			     [[maybe_unused]] const typename Module::Stats *stats,
+			     [[maybe_unused]] ControlList &metadata)
 	{
 	}
 };

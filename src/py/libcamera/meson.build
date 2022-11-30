@@ -13,8 +13,10 @@ pybind11_proj = subproject('pybind11')
 pybind11_dep = pybind11_proj.get_variable('pybind11_dep')
 
 pycamera_sources = files([
+    'py_camera_manager.cpp',
     'py_enums.cpp',
     'py_geometry.cpp',
+    'py_helpers.cpp',
     'py_main.cpp',
 ])
 
@@ -59,7 +61,7 @@ pycamera_sources += custom_target('py_gen_formats',
                                   command : [gen_py_formats, '-o', '@OUTPUT@', '@INPUT@'])
 
 pycamera_deps = [
-    libcamera_public,
+    libcamera_private,
     py3_dep,
     pybind11_dep,
 ]
@@ -68,7 +70,6 @@ pycamera_args = [
     '-fvisibility=hidden',
     '-Wno-shadow',
     '-DPYBIND11_USE_SMART_HOLDER_AS_DEFAULT',
-    '-DLIBCAMERA_BASE_PRIVATE',
 ]
 
 destdir = get_option('libdir') / ('python' + py3_dep.version()) / 'site-packages' / 'libcamera'
